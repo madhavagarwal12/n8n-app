@@ -94,35 +94,112 @@ class N8nProcessSupervisor(private val context: Context) {
         File(etcDir, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
 
         val webhookUrl = "http://$localIp:$port/"
+        val shellPrefix = getShellPrefix(rootfsDir)
 
-        // Check if n8n or node is installed inside rootfs
+        // Check if n8n and node are already installed and verified
+        var isInstalledAndVerified = false
         val hasN8n = File(rootfsDir, "usr/local/bin/n8n").exists() || File(rootfsDir, "usr/bin/n8n").exists()
         val hasNode = File(rootfsDir, "usr/bin/node").exists() || File(rootfsDir, "usr/local/bin/node").exists()
 
-        if (!hasN8n || !hasNode) {
-            emitLog("Node.js / n8n package not found in rootfs. Starting one-time automated package setup...", LogLevel.INFO)
-            val shellCmd = if (shFile.exists()) "/bin/sh" else "/bin/busybox"
-            val setupSuccess = runProotCommand(
-                prootBin = prootBin,
-                rootfsDir = rootfsDir,
-                dataDir = dataDir,
-                tmpDir = tmpDir,
-                nativeLibDir = nativeLibDir,
-                innerCommand = listOf(
-                    shellCmd, "-c",
-                    "apk update && apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++ && npm install -g n8n --omit=dev --foreground-scripts"
-                )
+        if (hasN8n && hasNode) {
+            val quickNode = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("node --version"),
+                "Verifying existing Node.js"
             )
+            val quickNpm = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("npm --version"),
+                "Verifying existing npm"
+            )
+            val quickN8n = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("n8n --version"),
+                "Verifying existing n8n"
+            )
+            if (quickNode && quickNpm && quickN8n) {
+                isInstalledAndVerified = true
+            }
+        }
 
-            if (!setupSuccess) {
-                emitLog("Failed to install n8n packages inside rootfs environment.", LogLevel.ERROR)
+        if (!isInstalledAndVerified) {
+            emitLog("Starting step-by-step automated package bootstrap...", LogLevel.INFO)
+
+            // Step 1: Harmless shell test
+            val step1 = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("echo SHELL_OK"),
+                "Testing rootfs shell execution (echo SHELL_OK)"
+            )
+            if (!step1) {
+                emitLog("Rootfs shell execution failed. Cannot proceed with package setup.", LogLevel.ERROR)
                 _serverState.value = ServerState.ERROR
                 return@withContext
             }
-            emitLog("n8n package setup completed successfully!", LogLevel.INFO)
+
+            // Step 2: Test apk update separately
+            val step2 = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("apk update"),
+                "Updating Alpine package repositories (apk update)"
+            )
+            if (!step2) {
+                emitLog("apk update failed. Check network or repository configuration.", LogLevel.ERROR)
+                _serverState.value = ServerState.ERROR
+                return@withContext
+            }
+
+            // Step 3: Install Node.js, npm, and prerequisites via apk
+            val step3 = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++"),
+                "Installing Node.js, npm, and build dependencies via apk"
+            )
+            if (!step3) {
+                emitLog("Failed to install Node.js/npm dependencies via apk.", LogLevel.ERROR)
+                _serverState.value = ServerState.ERROR
+                return@withContext
+            }
+
+            // Step 4: Install n8n globally via npm
+            val step4 = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("npm install -g n8n --omit=dev --foreground-scripts"),
+                "Installing n8n globally via npm (this may take 2-4 minutes)"
+            )
+            if (!step4) {
+                emitLog("Failed to install n8n globally via npm.", LogLevel.ERROR)
+                _serverState.value = ServerState.ERROR
+                return@withContext
+            }
+
+            // Step 5: Verification of node, npm, and n8n
+            val verifyNode = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("node --version"),
+                "Verifying Node.js version"
+            )
+            val verifyNpm = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("npm --version"),
+                "Verifying npm version"
+            )
+            val verifyN8n = runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("n8n --version"),
+                "Verifying n8n version"
+            )
+
+            if (!verifyNode || !verifyNpm || !verifyN8n) {
+                emitLog("Verification failed: node, npm, or n8n did not execute properly inside rootfs.", LogLevel.ERROR)
+                _serverState.value = ServerState.ERROR
+                return@withContext
+            }
+
+            emitLog("n8n package setup verified and completed successfully!", LogLevel.INFO)
         }
 
-        // Launch n8n start via sh to auto-resolve PATH
+        // Launch n8n start via shell prefix to auto-resolve PATH
         val commandList = listOf(
             prootBin.absolutePath,
             "-0",
@@ -141,9 +218,8 @@ class N8nProcessSupervisor(private val context: Context) {
             "N8N_PORT=$port",
             "N8N_SECURE_COOKIE=false",
             "N8N_DIAGNOSTICS_ENABLED=false",
-            "WEBHOOK_URL=$webhookUrl",
-            "/bin/sh", "-c", "exec n8n start"
-        )
+            "WEBHOOK_URL=$webhookUrl"
+        ) + shellPrefix + listOf("exec n8n start")
 
         try {
             emitLog("Executing supervisor command:\n${commandList.joinToString(" ")}", LogLevel.DEBUG)
@@ -196,13 +272,24 @@ class N8nProcessSupervisor(private val context: Context) {
         }
     }
 
+    private fun getShellPrefix(rootfsDir: File): List<String> {
+        val shFile = File(rootfsDir, "bin/sh")
+        val busyboxFile = File(rootfsDir, "bin/busybox")
+        return when {
+            shFile.exists() -> listOf("/bin/sh", "-c")
+            busyboxFile.exists() -> listOf("/bin/busybox", "sh", "-c")
+            else -> listOf("/bin/sh", "-c")
+        }
+    }
+
     private suspend fun runProotCommand(
         prootBin: File,
         rootfsDir: File,
         dataDir: File,
         tmpDir: File,
         nativeLibDir: String,
-        innerCommand: List<String>
+        innerCommand: List<String>,
+        stepDescription: String = ""
     ): Boolean = withContext(Dispatchers.IO) {
         val fullCommand = mutableListOf(
             prootBin.absolutePath,
@@ -220,8 +307,10 @@ class N8nProcessSupervisor(private val context: Context) {
         )
         fullCommand.addAll(innerCommand)
 
+        val desc = if (stepDescription.isNotEmpty()) stepDescription else innerCommand.joinToString(" ")
+        emitLog("Executing step: $desc", LogLevel.INFO)
+
         try {
-            emitLog("Running setup step: ${innerCommand.joinToString(" ")}", LogLevel.INFO)
             val pb = ProcessBuilder(fullCommand)
                 .directory(context.filesDir)
                 .redirectErrorStream(true)
@@ -237,9 +326,15 @@ class N8nProcessSupervisor(private val context: Context) {
             reader.close()
 
             val exitCode = p.waitFor()
-            return@withContext exitCode == 0
+            if (exitCode == 0) {
+                emitLog("Step completed successfully (exit code $exitCode)", LogLevel.INFO)
+                return@withContext true
+            } else {
+                emitLog("Step failed with exit code $exitCode", LogLevel.ERROR)
+                return@withContext false
+            }
         } catch (e: Exception) {
-            emitLog("Setup command failed: ${e.localizedMessage}", LogLevel.ERROR)
+            emitLog("Step threw exception: ${e.localizedMessage}", LogLevel.ERROR)
             return@withContext false
         }
     }

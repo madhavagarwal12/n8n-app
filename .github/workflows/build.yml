@@ -24,14 +24,16 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
 
       - name: Grant Execute Permissions
         run: |
-          chmod +x gradlew
+          chmod +x gradlew || true
           chmod +x scripts/*.sh || true
 
       - name: Build with Gradle
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4

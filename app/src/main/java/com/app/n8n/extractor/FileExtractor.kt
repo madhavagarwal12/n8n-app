@@ -19,6 +19,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Paths
 
 sealed class ExtractionProgress {
@@ -49,8 +50,10 @@ class FileExtractor(private val context: Context) {
 
     fun isInstalled(): Boolean {
         val sentinel = File(context.filesDir, SENTINEL_FILE)
-        val shBinary = File(rootfsDir, "bin/sh")
-        return sentinel.exists() && shBinary.exists() && prootBinary.exists()
+        val busybox = File(rootfsDir, "bin/busybox")
+        val shFile = File(rootfsDir, "bin/sh")
+        val hasShell = busybox.exists() || shFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(shFile.toPath(), LinkOption.NOFOLLOW_LINKS))
+        return sentinel.exists() && hasShell && prootBinary.exists()
     }
 
     fun extractPayload(): Flow<ExtractionProgress> = flow {
@@ -61,16 +64,18 @@ class FileExtractor(private val context: Context) {
             rootfsDir.mkdirs()
             dataDir.mkdirs()
 
-            // Step 1: Check if rootfs asset is bundled
+            // Step 1: Detect bundled rootfs asset
             var assetName: String? = null
             try {
-                if (context.assets.list("")?.contains(ROOTFS_XZ_ASSET) == true) {
+                context.assets.open(ROOTFS_GZ_ASSET).close()
+                assetName = ROOTFS_GZ_ASSET
+            } catch (e1: Exception) {
+                try {
+                    context.assets.open(ROOTFS_XZ_ASSET).close()
                     assetName = ROOTFS_XZ_ASSET
-                } else if (context.assets.list("")?.contains(ROOTFS_GZ_ASSET) == true) {
-                    assetName = ROOTFS_GZ_ASSET
+                } catch (e2: Exception) {
+                    assetName = null
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error checking assets", e)
             }
 
             if (assetName != null) {
@@ -103,20 +108,30 @@ class FileExtractor(private val context: Context) {
                 tempArchive.delete()
             }
 
-            // Configure resolv.conf inside rootfs
+            // Configure DNS resolv.conf inside rootfs
             val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
             File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+
+            // Ensure busybox and sh are executable and valid
+            val busybox = File(rootfsDir, "bin/busybox")
+            val shFile = File(rootfsDir, "bin/sh")
+
+            if (busybox.exists()) {
+                busybox.setExecutable(true, false)
+                // If sh does not exist as a direct file or broken symlink, duplicate busybox as sh
+                if (!shFile.exists()) {
+                    try {
+                        busybox.copyTo(shFile, overwrite = true)
+                        shFile.setExecutable(true, false)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not copy busybox to sh", e)
+                    }
+                }
+            }
 
             // Step 2: Finalize permissions
             emit(ExtractionProgress.Progress(0.96f, "Configuring POSIX permissions..."))
             ensurePermissions(rootfsDir)
-
-            // Validate that /bin/sh exists
-            val shBinary = File(rootfsDir, "bin/sh")
-            if (!shBinary.exists()) {
-                throw IllegalStateException("Rootfs extraction incomplete: /bin/sh not found in ${rootfsDir.absolutePath}")
-            }
-            shBinary.setExecutable(true, false)
 
             File(context.filesDir, SENTINEL_FILE).writeText(System.currentTimeMillis().toString())
 
@@ -190,19 +205,22 @@ class FileExtractor(private val context: Context) {
 
         while (entry != null) {
             count++
-            val destFile = File(rootfsDir, entry.name)
+            val cleanName = entry.name.removePrefix("./").removePrefix("/")
+            if (cleanName.isNotEmpty()) {
+                val destFile = File(rootfsDir, cleanName)
 
-            if (entry.isDirectory) {
-                destFile.mkdirs()
-            } else if (entry.isSymbolicLink) {
-                createSymlink(destFile, entry.linkName)
-            } else {
-                destFile.parentFile?.mkdirs()
-                FileOutputStream(destFile).use { output ->
-                    tarIn.copyTo(output)
-                }
-                if (entry.mode and 0b001001001 != 0) {
-                    destFile.setExecutable(true, false)
+                if (entry.isDirectory) {
+                    destFile.mkdirs()
+                } else if (entry.isSymbolicLink) {
+                    createSymlink(destFile, entry.linkName)
+                } else {
+                    destFile.parentFile?.mkdirs()
+                    FileOutputStream(destFile).use { output ->
+                        tarIn.copyTo(output)
+                    }
+                    if (entry.mode and 0b001001001 != 0) {
+                        destFile.setExecutable(true, false)
+                    }
                 }
             }
 
@@ -215,20 +233,29 @@ class FileExtractor(private val context: Context) {
     }
 
     private fun createSymlink(linkFile: File, target: String) {
+        linkFile.parentFile?.mkdirs()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                val linkPath = Paths.get(linkFile.absolutePath)
-                val targetPath = Paths.get(target)
+                val linkPath = linkFile.toPath()
                 Files.deleteIfExists(linkPath)
-                Files.createSymbolicLink(linkPath, targetPath)
+                Files.createSymbolicLink(linkPath, Paths.get(target))
                 return
             } catch (e: Exception) {
                 Log.w(TAG, "Symlink creation failed for ${linkFile.name}: ${e.message}")
             }
         }
         try {
-            linkFile.parentFile?.mkdirs()
-            linkFile.writeText(target)
+            val resolvedTarget = if (target.startsWith("/")) {
+                File(rootfsDir, target.removePrefix("/"))
+            } else {
+                File(linkFile.parentFile, target)
+            }
+            if (resolvedTarget.exists() && resolvedTarget.isFile) {
+                resolvedTarget.copyTo(linkFile, overwrite = true)
+                linkFile.setExecutable(true, false)
+            } else {
+                linkFile.writeText(target)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Fallback symlink write failed", e)
         }
@@ -242,7 +269,7 @@ class FileExtractor(private val context: Context) {
         } else {
             file.setReadable(true, false)
             val parentName = file.parentFile?.name
-            if (parentName == "bin" || parentName == "sbin" || file.name == "sh" || file.name == "n8n" || file.name == "node") {
+            if (parentName == "bin" || parentName == "sbin" || file.name == "sh" || file.name == "busybox" || file.name == "n8n" || file.name == "node") {
                 file.setExecutable(true, false)
             }
         }

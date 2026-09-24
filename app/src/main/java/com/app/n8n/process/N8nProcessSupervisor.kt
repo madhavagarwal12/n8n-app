@@ -67,13 +67,26 @@ class N8nProcessSupervisor(private val context: Context) {
             return@withContext
         }
 
-        // Pre-flight check 2: Rootfs /bin/sh
+        // Pre-flight check 2: Rootfs /bin/sh or /bin/busybox
         val shFile = File(rootfsDir, "bin/sh")
-        if (!shFile.exists()) {
-            emitLog("Error: Rootfs shell not found at ${shFile.absolutePath}. Reinstalling...", LogLevel.ERROR)
+        val busyboxFile = File(rootfsDir, "bin/busybox")
+
+        if (!shFile.exists() && busyboxFile.exists()) {
+            try {
+                busyboxFile.copyTo(shFile, overwrite = true)
+                shFile.setExecutable(true, false)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error copying busybox to sh", e)
+            }
+        }
+
+        if (!shFile.exists() && !busyboxFile.exists()) {
+            emitLog("Error: Rootfs shell not found at ${shFile.absolutePath}. Please re-run setup.", LogLevel.ERROR)
             _serverState.value = ServerState.ERROR
             return@withContext
         }
+        shFile.setExecutable(true, false)
+        busyboxFile.setExecutable(true, false)
 
         val webhookUrl = "http://$localIp:$port/"
 
@@ -83,6 +96,7 @@ class N8nProcessSupervisor(private val context: Context) {
 
         if (!n8nBinary.exists() || !nodeBinary.exists()) {
             emitLog("Node.js / n8n package not found in rootfs. Starting one-time automated package setup...", LogLevel.INFO)
+            val shellCmd = if (shFile.exists()) "/bin/sh" else "/bin/busybox"
             val setupSuccess = runProotCommand(
                 prootBin = prootBin,
                 rootfsDir = rootfsDir,
@@ -90,7 +104,7 @@ class N8nProcessSupervisor(private val context: Context) {
                 tmpDir = tmpDir,
                 nativeLibDir = nativeLibDir,
                 innerCommand = listOf(
-                    "/bin/sh", "-c",
+                    shellCmd, "-c",
                     "apk update && apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++ && npm install -g n8n --omit=dev --foreground-scripts"
                 )
             )

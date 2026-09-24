@@ -27,6 +27,13 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Prepare Rootfs Assets
+        run: |
+          mkdir -p app/src/main/assets
+          echo "Downloading Alpine ARM64 rootfs payload..."
+          curl -fsSL "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.0-aarch64.tar.gz" -o "app/src/main/assets/n8n-rootfs-arm64.tar.gz"
+          ls -lh app/src/main/assets/
+
       - name: Grant Execute Permissions
         run: |
           chmod +x gradlew || true

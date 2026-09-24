@@ -33,8 +33,7 @@ class N8nProcessSupervisor(private val context: Context) {
 
     private val extractor = FileExtractor(context)
     private var process: Process? = null
-    private var stdoutJob: Job? = null
-    private var stderrJob: Job? = null
+    private var logMonitorJob: Job? = null
     private val supervisorScope = CoroutineScope(Dispatchers.IO + Job())
 
     private val _serverState = MutableStateFlow(ServerState.STOPPED)
@@ -61,16 +60,50 @@ class N8nProcessSupervisor(private val context: Context) {
         val dataDir = extractor.dataDir
         val tmpDir = File(context.cacheDir, "proot_tmp").apply { mkdirs() }
 
-        // Validate PRoot binary
+        // Pre-flight check 1: PRoot binary
         if (!prootBin.exists()) {
             emitLog("Error: PRoot binary not found at ${prootBin.absolutePath}", LogLevel.ERROR)
             _serverState.value = ServerState.ERROR
             return@withContext
         }
-        prootBin.setExecutable(true, false)
+
+        // Pre-flight check 2: Rootfs /bin/sh
+        val shFile = File(rootfsDir, "bin/sh")
+        if (!shFile.exists()) {
+            emitLog("Error: Rootfs shell not found at ${shFile.absolutePath}. Reinstalling...", LogLevel.ERROR)
+            _serverState.value = ServerState.ERROR
+            return@withContext
+        }
 
         val webhookUrl = "http://$localIp:$port/"
 
+        // Check if n8n or node is installed inside rootfs
+        val n8nBinary = File(rootfsDir, "usr/local/bin/n8n")
+        val nodeBinary = File(rootfsDir, "usr/bin/node")
+
+        if (!n8nBinary.exists() || !nodeBinary.exists()) {
+            emitLog("Node.js / n8n package not found in rootfs. Starting one-time automated package setup...", LogLevel.INFO)
+            val setupSuccess = runProotCommand(
+                prootBin = prootBin,
+                rootfsDir = rootfsDir,
+                dataDir = dataDir,
+                tmpDir = tmpDir,
+                nativeLibDir = nativeLibDir,
+                innerCommand = listOf(
+                    "/bin/sh", "-c",
+                    "apk update && apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++ && npm install -g n8n --omit=dev --foreground-scripts"
+                )
+            )
+
+            if (!setupSuccess) {
+                emitLog("Failed to install n8n packages inside rootfs environment.", LogLevel.ERROR)
+                _serverState.value = ServerState.ERROR
+                return@withContext
+            }
+            emitLog("n8n package setup completed successfully!", LogLevel.INFO)
+        }
+
+        // Launch n8n start
         val commandList = listOf(
             prootBin.absolutePath,
             "-0",
@@ -94,52 +127,27 @@ class N8nProcessSupervisor(private val context: Context) {
         )
 
         try {
-            emitLog("Executing supervisor via ${prootBin.name} (Native lib dir: $nativeLibDir)", LogLevel.DEBUG)
+            emitLog("Executing supervisor command:\n${commandList.joinToString(" ")}", LogLevel.DEBUG)
 
             val processBuilder = ProcessBuilder(commandList)
                 .directory(context.filesDir)
-                .redirectErrorStream(false)
+                .redirectErrorStream(true) // Merge stdout & stderr for complete chronological logs
 
-            val env = processBuilder.environment()
-            env["LD_LIBRARY_PATH"] = nativeLibDir
-            val loader = File(nativeLibDir, "libproot-loader.so")
-            if (loader.exists()) {
-                env["PROOT_LOADER"] = loader.absolutePath
-            }
-            val loader32 = File(nativeLibDir, "libproot-loader32.so")
-            if (loader32.exists()) {
-                env["PROOT_LOADER_32"] = loader32.absolutePath
-            }
-            env["PROOT_TMP_DIR"] = tmpDir.absolutePath
+            setupEnvironment(processBuilder, nativeLibDir, tmpDir)
 
             val p = processBuilder.start()
             process = p
 
-            // Monitor stdout
-            stdoutJob = supervisorScope.launch {
+            // Monitor combined output stream
+            logMonitorJob = supervisorScope.launch {
                 val reader = BufferedReader(InputStreamReader(p.inputStream))
                 try {
                     while (isActive) {
                         val line = reader.readLine() ?: break
-                        parseAndEmitLog(line, isStderr = false)
+                        parseAndEmitLog(line)
                     }
                 } catch (e: Exception) {
-                    if (isActive) Log.e(TAG, "Stdout reader closed", e)
-                } finally {
-                    reader.close()
-                }
-            }
-
-            // Monitor stderr
-            stderrJob = supervisorScope.launch {
-                val reader = BufferedReader(InputStreamReader(p.errorStream))
-                try {
-                    while (isActive) {
-                        val line = reader.readLine() ?: break
-                        parseAndEmitLog(line, isStderr = true)
-                    }
-                } catch (e: Exception) {
-                    if (isActive) Log.e(TAG, "Stderr reader closed", e)
+                    if (isActive) Log.e(TAG, "Log stream closed", e)
                 } finally {
                     reader.close()
                 }
@@ -167,6 +175,68 @@ class N8nProcessSupervisor(private val context: Context) {
             _serverState.value = ServerState.ERROR
             cleanupHandles()
         }
+    }
+
+    private suspend fun runProotCommand(
+        prootBin: File,
+        rootfsDir: File,
+        dataDir: File,
+        tmpDir: File,
+        nativeLibDir: String,
+        innerCommand: List<String>
+    ): Boolean = withContext(Dispatchers.IO) {
+        val fullCommand = mutableListOf(
+            prootBin.absolutePath,
+            "-0",
+            "-r", rootfsDir.absolutePath,
+            "-b", "/dev",
+            "-b", "/proc",
+            "-b", "/sys",
+            "-b", "${dataDir.absolutePath}:/root/.n8n",
+            "-b", "${tmpDir.absolutePath}:/tmp",
+            "-w", "/root",
+            "/usr/bin/env", "-i",
+            "HOME=/root",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        )
+        fullCommand.addAll(innerCommand)
+
+        try {
+            emitLog("Running setup step: ${innerCommand.joinToString(" ")}", LogLevel.INFO)
+            val pb = ProcessBuilder(fullCommand)
+                .directory(context.filesDir)
+                .redirectErrorStream(true)
+
+            setupEnvironment(pb, nativeLibDir, tmpDir)
+            val p = pb.start()
+
+            val reader = BufferedReader(InputStreamReader(p.inputStream))
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                line?.let { parseAndEmitLog(it) }
+            }
+            reader.close()
+
+            val exitCode = p.waitFor()
+            return@withContext exitCode == 0
+        } catch (e: Exception) {
+            emitLog("Setup command failed: ${e.localizedMessage}", LogLevel.ERROR)
+            return@withContext false
+        }
+    }
+
+    private fun setupEnvironment(processBuilder: ProcessBuilder, nativeLibDir: String, tmpDir: File) {
+        val env = processBuilder.environment()
+        env["LD_LIBRARY_PATH"] = nativeLibDir
+        val loader = File(nativeLibDir, "libproot-loader.so")
+        if (loader.exists()) {
+            env["PROOT_LOADER"] = loader.absolutePath
+        }
+        val loader32 = File(nativeLibDir, "libproot-loader32.so")
+        if (loader32.exists()) {
+            env["PROOT_LOADER_32"] = loader32.absolutePath
+        }
+        env["PROOT_TMP_DIR"] = tmpDir.absolutePath
     }
 
     suspend fun stopServer() = withContext(Dispatchers.IO) {
@@ -211,9 +281,11 @@ class N8nProcessSupervisor(private val context: Context) {
         emitLog("n8n server is stopped.", LogLevel.INFO)
     }
 
-    private fun parseAndEmitLog(rawLine: String, isStderr: Boolean) {
+    private fun parseAndEmitLog(rawLine: String) {
+        // Filter or tag linker notices as DEBUG so they don't look like app crashes
         val level = when {
-            rawLine.contains("ERROR", ignoreCase = true) || isStderr -> LogLevel.ERROR
+            rawLine.startsWith("WARNING: linker:") -> LogLevel.DEBUG
+            rawLine.contains("ERROR", ignoreCase = true) -> LogLevel.ERROR
             rawLine.contains("WARN", ignoreCase = true) -> LogLevel.WARN
             rawLine.contains("DEBUG", ignoreCase = true) -> LogLevel.DEBUG
             else -> LogLevel.INFO
@@ -228,10 +300,8 @@ class N8nProcessSupervisor(private val context: Context) {
     }
 
     private fun cleanupHandles() {
-        stdoutJob?.cancel()
-        stderrJob?.cancel()
-        stdoutJob = null
-        stderrJob = null
+        logMonitorJob?.cancel()
+        logMonitorJob = null
         process = null
     }
 }

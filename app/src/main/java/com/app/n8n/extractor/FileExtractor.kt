@@ -9,12 +9,15 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.tukaani.xz.XZInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Paths
 
@@ -28,8 +31,9 @@ class FileExtractor(private val context: Context) {
 
     companion object {
         private const val TAG = "FileExtractor"
-        const val ROOTFS_ARCHIVE_ASSET = "n8n-rootfs-arm64.tar.xz"
-        const val PROOT_BINARY_ASSET = "proot"
+        const val ROOTFS_XZ_ASSET = "n8n-rootfs-arm64.tar.xz"
+        const val ROOTFS_GZ_ASSET = "n8n-rootfs-arm64.tar.gz"
+        const val ALPINE_MINI_URL = "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.0-aarch64.tar.gz"
         private const val SENTINEL_FILE = ".n8n_installed"
     }
 
@@ -45,86 +49,125 @@ class FileExtractor(private val context: Context) {
 
     fun isInstalled(): Boolean {
         val sentinel = File(context.filesDir, SENTINEL_FILE)
-        return sentinel.exists() && prootBinary.exists() && rootfsDir.exists()
+        val shBinary = File(rootfsDir, "bin/sh")
+        return sentinel.exists() && shBinary.exists() && prootBinary.exists()
     }
 
     fun extractPayload(): Flow<ExtractionProgress> = flow {
         try {
-            emit(ExtractionProgress.Progress(0f, "Initializing directories..."))
+            emit(ExtractionProgress.Progress(0.02f, "Preparing file system sandbox..."))
 
-            // Prepare base directories
             binDir.mkdirs()
             rootfsDir.mkdirs()
             dataDir.mkdirs()
 
-            // Step 1: Extract PRoot binary if bundled in assets
-            emit(ExtractionProgress.Progress(0.05f, "Installing PRoot core binary..."))
-            extractProotBinary()
-
-            // Step 2: Extract rootfs
-            emit(ExtractionProgress.Progress(0.10f, "Preparing rootfs archive..."))
-            val hasAssetArchive = try {
-                context.assets.open(ROOTFS_ARCHIVE_ASSET).use { true }
+            // Step 1: Check if rootfs asset is bundled
+            var assetName: String? = null
+            try {
+                if (context.assets.list("")?.contains(ROOTFS_XZ_ASSET) == true) {
+                    assetName = ROOTFS_XZ_ASSET
+                } else if (context.assets.list("")?.contains(ROOTFS_GZ_ASSET) == true) {
+                    assetName = ROOTFS_GZ_ASSET
+                }
             } catch (e: Exception) {
-                false
+                Log.w(TAG, "Error checking assets", e)
             }
 
-            if (hasAssetArchive) {
-                context.assets.open(ROOTFS_ARCHIVE_ASSET).use { assetStream ->
-                    extractTarXzStream(assetStream) { progress, message ->
-                        // Scale progress 0.10 to 0.95
-                        val scaled = 0.10f + (progress * 0.85f)
-                        emit(ExtractionProgress.Progress(scaled, message))
+            if (assetName != null) {
+                emit(ExtractionProgress.Progress(0.10f, "Extracting bundled rootfs payload ($assetName)..."))
+                context.assets.open(assetName).use { assetStream ->
+                    if (assetName.endsWith(".xz")) {
+                        extractTarXzStream(assetStream) { p, msg ->
+                            emit(ExtractionProgress.Progress(0.10f + (p * 0.85f), msg))
+                        }
+                    } else {
+                        extractTarGzStream(assetStream) { p, msg ->
+                            emit(ExtractionProgress.Progress(0.10f + (p * 0.85f), msg))
+                        }
                     }
                 }
             } else {
-                // If not in assets, check for pre-downloaded archive in cache/files
-                val downloadedArchive = File(context.cacheDir, ROOTFS_ARCHIVE_ASSET)
-                if (downloadedArchive.exists()) {
-                    FileInputStream(downloadedArchive).use { fileStream ->
-                        extractTarXzStream(fileStream) { progress, message ->
-                            val scaled = 0.10f + (progress * 0.85f)
-                            emit(ExtractionProgress.Progress(scaled, message))
-                        }
-                    }
-                } else {
-                    Log.w(TAG, "No rootfs asset found. Initializing skeleton structure.")
-                    emit(ExtractionProgress.Progress(0.50f, "Setting up skeleton rootfs environment..."))
-                    createSkeletonStructure()
+                // Download Alpine Linux base rootfs from CDN
+                emit(ExtractionProgress.Progress(0.10f, "Downloading Alpine Linux ARM64 rootfs..."))
+                val tempArchive = File(context.cacheDir, "alpine-rootfs.tar.gz")
+                downloadFile(ALPINE_MINI_URL, tempArchive) { downloadProgress ->
+                    emit(ExtractionProgress.Progress(0.10f + (downloadProgress * 0.40f), "Downloading rootfs: ${(downloadProgress * 100).toInt()}%"))
                 }
+
+                emit(ExtractionProgress.Progress(0.55f, "Extracting Alpine Linux rootfs..."))
+                FileInputStream(tempArchive).use { fileIn ->
+                    extractTarGzStream(fileIn) { p, msg ->
+                        emit(ExtractionProgress.Progress(0.55f + (p * 0.40f), msg))
+                    }
+                }
+                tempArchive.delete()
             }
 
-            // Step 3: Finalize permissions and write sentinel
-            emit(ExtractionProgress.Progress(0.98f, "Finalizing file permissions..."))
-            ensurePermissions(binDir)
+            // Configure resolv.conf inside rootfs
+            val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
+            File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+
+            // Step 2: Finalize permissions
+            emit(ExtractionProgress.Progress(0.96f, "Configuring POSIX permissions..."))
             ensurePermissions(rootfsDir)
+
+            // Validate that /bin/sh exists
+            val shBinary = File(rootfsDir, "bin/sh")
+            if (!shBinary.exists()) {
+                throw IllegalStateException("Rootfs extraction incomplete: /bin/sh not found in ${rootfsDir.absolutePath}")
+            }
+            shBinary.setExecutable(true, false)
 
             File(context.filesDir, SENTINEL_FILE).writeText(System.currentTimeMillis().toString())
 
-            emit(ExtractionProgress.Progress(1.0f, "Installation completed successfully!"))
+            emit(ExtractionProgress.Progress(1.0f, "Environment ready!"))
             emit(ExtractionProgress.Completed(rootfsDir, binDir, dataDir))
 
         } catch (t: Throwable) {
-            Log.e(TAG, "Extraction failed", t)
+            Log.e(TAG, "Rootfs extraction failed", t)
             emit(ExtractionProgress.Failed(t))
         }
     }.flowOn(Dispatchers.IO)
 
-    private fun extractProotBinary() {
-        try {
-            context.assets.open(PROOT_BINARY_ASSET).use { input ->
-                FileOutputStream(prootBinary).use { output ->
-                    input.copyTo(output)
+    private fun downloadFile(urlStr: String, destination: File, onProgress: suspend (Float) -> Unit) {
+        val url = URL(urlStr)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 15000
+        connection.readTimeout = 30000
+        connection.instanceFollowRedirects = true
+        connection.connect()
+
+        if (connection.responseCode !in 200..299) {
+            throw IllegalStateException("HTTP ${connection.responseCode}: ${connection.responseMessage}")
+        }
+
+        val totalLength = connection.contentLength
+        var downloaded = 0L
+
+        connection.inputStream.use { input ->
+            FileOutputStream(destination).use { output ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    downloaded += bytesRead
+                    if (totalLength > 0) {
+                        val progress = downloaded.toFloat() / totalLength
+                        kotlinx.coroutines.runBlocking { onProgress(progress) }
+                    }
                 }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Asset proot binary not found in apk assets; creating placeholder/stub")
-            if (!prootBinary.exists()) {
-                prootBinary.writeText("#!/system/bin/sh\n")
-            }
         }
-        prootBinary.setExecutable(true, false)
-        prootBinary.setReadable(true, false)
+    }
+
+    private suspend fun extractTarGzStream(
+        rawInput: InputStream,
+        onProgress: suspend (Float, String) -> Unit
+    ) {
+        val bufferedInput = BufferedInputStream(rawInput)
+        val gzIn = GzipCompressorInputStream(bufferedInput)
+        val tarIn = TarArchiveInputStream(gzIn)
+        extractTarEntries(tarIn, onProgress)
     }
 
     private suspend fun extractTarXzStream(
@@ -134,7 +177,13 @@ class FileExtractor(private val context: Context) {
         val bufferedInput = BufferedInputStream(rawInput)
         val xzIn = XZInputStream(bufferedInput)
         val tarIn = TarArchiveInputStream(xzIn)
+        extractTarEntries(tarIn, onProgress)
+    }
 
+    private suspend fun extractTarEntries(
+        tarIn: TarArchiveInputStream,
+        onProgress: suspend (Float, String) -> Unit
+    ) {
         var entry: TarArchiveEntry? = tarIn.nextTarEntry
         var count = 0
 
@@ -151,13 +200,13 @@ class FileExtractor(private val context: Context) {
                 FileOutputStream(destFile).use { output ->
                     tarIn.copyTo(output)
                 }
-                if (entry.mode and 0b001001001 != 0) { // check if executable
+                if (entry.mode and 0b001001001 != 0) {
                     destFile.setExecutable(true, false)
                 }
             }
 
-            if (count % 50 == 0) {
-                onProgress(0.5f, "Extracting: ${entry.name.takeLast(30)}")
+            if (count % 40 == 0) {
+                onProgress(0.5f, "Extracting: ${entry.name.takeLast(25)}")
             }
 
             entry = tarIn.nextTarEntry
@@ -173,26 +222,14 @@ class FileExtractor(private val context: Context) {
                 Files.createSymbolicLink(linkPath, targetPath)
                 return
             } catch (e: Exception) {
-                Log.w(TAG, "Symlink creation via java.nio failed for ${linkFile.name}: ${e.message}")
+                Log.w(TAG, "Symlink creation failed for ${linkFile.name}: ${e.message}")
             }
         }
-        // Fallback: write text reference if symlink fails
         try {
             linkFile.parentFile?.mkdirs()
             linkFile.writeText(target)
         } catch (e: Exception) {
             Log.e(TAG, "Fallback symlink write failed", e)
-        }
-    }
-
-    private fun createSkeletonStructure() {
-        // Creates necessary directories for FHS layout
-        val dirs = listOf(
-            "dev", "proc", "sys", "etc", "bin", "sbin", "usr/bin", "usr/sbin",
-            "usr/local/bin", "usr/lib", "lib", "root", "tmp", "var/log"
-        )
-        for (dir in dirs) {
-            File(rootfsDir, dir).mkdirs()
         }
     }
 
@@ -203,7 +240,8 @@ class FileExtractor(private val context: Context) {
             file.listFiles()?.forEach { ensurePermissions(it) }
         } else {
             file.setReadable(true, false)
-            if (file.parentFile?.name == "bin" || file.parentFile?.name == "sbin" || file.name == "n8n" || file.name == "node" || file.name == "proot") {
+            val parentName = file.parentFile?.name
+            if (parentName == "bin" || parentName == "sbin" || file.name == "sh" || file.name == "n8n" || file.name == "node") {
                 file.setExecutable(true, false)
             }
         }

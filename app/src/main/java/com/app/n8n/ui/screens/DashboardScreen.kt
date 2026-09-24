@@ -1,8 +1,12 @@
 package com.app.n8n.ui.screens
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.res.painterResource
+import com.app.n8n.R
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -91,20 +95,14 @@ fun DashboardScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_round),
+                    contentDescription = "App Logo",
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(N8nOrange),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "n8n",
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 14.sp
-                    )
-                }
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, N8nOrange, CircleShape)
+                )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(

@@ -1,7 +1,9 @@
 package com.app.n8n.ui.screens
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,10 +28,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.n8n.R
 import com.app.n8n.ui.theme.DarkBackground
 import com.app.n8n.ui.theme.DarkCardBorder
 import com.app.n8n.ui.theme.DarkSurface
@@ -64,20 +68,14 @@ fun SetupScreen(
                 .background(DarkSurface)
                 .padding(28.dp)
         ) {
-            Box(
+            Image(
+                painter = painterResource(id = R.drawable.ic_launcher_round),
+                contentDescription = "App Logo",
                 modifier = Modifier
                     .size(72.dp)
                     .clip(CircleShape)
-                    .background(N8nOrange.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Construction,
-                    contentDescription = null,
-                    tint = N8nOrange,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
+                    .border(3.dp, N8nOrange, CircleShape)
+            )
 
             Spacer(modifier = Modifier.height(20.dp))
 

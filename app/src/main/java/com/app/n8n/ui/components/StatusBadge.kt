@@ -28,13 +28,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.n8n.model.ServerState
-import com.app.n8n.ui.theme.GlassCardBackgroundLight
-import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.GlassBorder
+import com.app.n8n.ui.theme.GlassSurfaceHighlight
 import com.app.n8n.ui.theme.StatusErrorRed
 import com.app.n8n.ui.theme.StatusRunningGreen
 import com.app.n8n.ui.theme.StatusStartingYellow
 import com.app.n8n.ui.theme.StatusStoppedBlue
-import com.app.n8n.ui.theme.TextDarkPrimary
 import com.app.n8n.ui.theme.TextDarkSecondary
 
 @Composable
@@ -42,14 +41,14 @@ fun StatusBadge(
     state: ServerState,
     modifier: Modifier = Modifier
 ) {
-    val (statusColor, label) = when (state) {
-        ServerState.RUNNING -> StatusRunningGreen to "Running"
-        ServerState.STARTING -> StatusStartingYellow to "Starting..."
-        ServerState.STOPPING -> StatusStartingYellow to "Stopping..."
-        ServerState.EXTRACTING -> StatusStoppedBlue to "Setting Up"
-        ServerState.ERROR -> StatusErrorRed to "Error"
-        ServerState.STOPPED -> StatusStoppedBlue to "Stopped"
-        ServerState.NOT_INSTALLED -> StatusStoppedBlue to "Stopped"
+    val (statusColor, textColor, label) = when (state) {
+        ServerState.RUNNING -> Triple(StatusRunningGreen, Color(0xFF059669), "Running")
+        ServerState.STARTING -> Triple(StatusStartingYellow, Color(0xFFD97706), "Starting...")
+        ServerState.STOPPING -> Triple(StatusStartingYellow, Color(0xFFD97706), "Stopping...")
+        ServerState.EXTRACTING -> Triple(StatusStoppedBlue, Color(0xFF4338CA), "Setting Up")
+        ServerState.ERROR -> Triple(StatusErrorRed, Color(0xFFDC2626), "Error")
+        ServerState.STOPPED -> Triple(StatusStoppedBlue, TextDarkSecondary, "Stopped")
+        ServerState.NOT_INSTALLED -> Triple(StatusStoppedBlue, TextDarkSecondary, "Stopped")
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -63,7 +62,7 @@ fun StatusBadge(
         label = "alpha"
     )
 
-    val dotAlpha = if (state == ServerState.RUNNING || state == ServerState.STARTING) {
+    val dotAlpha = if (state == ServerState.RUNNING || state == ServerState.STARTING || state == ServerState.EXTRACTING) {
         alphaAnim
     } else {
         1.0f
@@ -73,14 +72,14 @@ fun StatusBadge(
         modifier = modifier
             .shadow(4.dp, CircleShape, clip = false, spotColor = Color(0x14000000))
             .clip(CircleShape)
-            .background(GlassCardBackgroundLight)
-            .border(1.5.dp, GlassCardBorder, CircleShape)
+            .background(GlassSurfaceHighlight)
+            .border(1.5.dp, GlassBorder, CircleShape)
             .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(7.dp)
+                .size(7.5.dp)
                 .alpha(dotAlpha)
                 .clip(CircleShape)
                 .background(statusColor)
@@ -88,7 +87,7 @@ fun StatusBadge(
         Spacer(modifier = Modifier.width(7.dp))
         Text(
             text = label,
-            color = TextDarkSecondary,
+            color = textColor,
             fontWeight = FontWeight.SemiBold,
             fontSize = 13.sp
         )

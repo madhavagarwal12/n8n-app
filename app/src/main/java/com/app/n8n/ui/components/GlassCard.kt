@@ -13,22 +13,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.app.n8n.ui.theme.GlassCardBackground
-import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.GlassBorder
+import com.app.n8n.ui.theme.GlassSurface
 
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(26.dp),
-    backgroundColor: Color = GlassCardBackground,
-    borderColor: Color = GlassCardBorder,
+    shape: Shape = RoundedCornerShape(28.dp),
+    backgroundColor: Color = GlassSurface,
+    borderColor: Color = GlassBorder,
     borderWidth: Dp = 1.5.dp,
-    elevation: Dp = 6.dp,
+    elevation: Dp = 8.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
         modifier = modifier
-            .shadow(elevation, shape, clip = false, spotColor = Color(0x1A000000), ambientColor = Color(0x0D000000))
+            .shadow(
+                elevation = elevation,
+                shape = shape,
+                clip = false,
+                spotColor = Color(0x180F172A),
+                ambientColor = Color(0x0A0F172A)
+            )
             .clip(shape)
             .background(backgroundColor)
             .border(borderWidth, borderColor, shape),

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AvTimer
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,8 +32,8 @@ import androidx.compose.ui.unit.sp
 import com.app.n8n.model.SystemStats
 import com.app.n8n.ui.theme.BlueBadgeBg
 import com.app.n8n.ui.theme.BlueBadgeTint
-import com.app.n8n.ui.theme.GlassCardBackground
-import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.GlassBorder
+import com.app.n8n.ui.theme.GlassSurface
 import com.app.n8n.ui.theme.GreenBadgeBg
 import com.app.n8n.ui.theme.GreenBadgeTint
 import com.app.n8n.ui.theme.PinkBadgeBg
@@ -51,13 +49,13 @@ fun SystemStatsCard(
     GlassCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        backgroundColor = GlassCardBackground,
-        borderColor = GlassCardBorder
+        backgroundColor = GlassSurface,
+        borderColor = GlassBorder
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 18.dp, horizontal = 12.dp),
+                .padding(vertical = 18.dp, horizontal = 10.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -71,7 +69,7 @@ fun SystemStatsCard(
                 modifier = Modifier.weight(1f)
             )
 
-            // Divider 1
+            // Vertical Divider 1
             Box(
                 modifier = Modifier
                     .width(1.dp)
@@ -89,7 +87,7 @@ fun SystemStatsCard(
                 modifier = Modifier.weight(1f)
             )
 
-            // Divider 2
+            // Vertical Divider 2
             Box(
                 modifier = Modifier
                     .width(1.dp)
@@ -145,7 +143,8 @@ private fun StatColumnItem(
             text = value,
             color = TextDarkPrimary,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.5.sp
+            fontSize = 15.5.sp,
+            letterSpacing = (-0.2).sp
         )
 
         Spacer(modifier = Modifier.height(2.dp))

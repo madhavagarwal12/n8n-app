@@ -1,10 +1,12 @@
 package com.app.n8n.ui.screens
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,9 +32,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -48,8 +53,8 @@ import com.app.n8n.ui.components.QrCodeView
 import com.app.n8n.ui.components.StatusBadge
 import com.app.n8n.ui.components.SystemStatsCard
 import com.app.n8n.ui.components.UrlCard
-import com.app.n8n.ui.theme.GlassCardBackground
-import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.GlassBorder
+import com.app.n8n.ui.theme.GlassSurface
 import com.app.n8n.ui.theme.PrimaryButtonGradient
 import com.app.n8n.ui.theme.StatusStartingYellow
 import com.app.n8n.ui.theme.StopButtonGradient
@@ -71,6 +76,10 @@ fun DashboardScreen(
     val isRunning = serverState == ServerState.RUNNING
     val isBusy = serverState == ServerState.STARTING || serverState == ServerState.STOPPING
 
+    val buttonInteractionSource = remember { MutableInteractionSource() }
+    val isButtonPressed by buttonInteractionSource.collectIsPressedAsState()
+    val buttonScale by animateFloatAsState(targetValue = if (isButtonPressed) 0.96f else 1.0f, label = "btnScale")
+
     FluidBackground {
         Column(
             modifier = Modifier
@@ -79,7 +88,7 @@ fun DashboardScreen(
                 .padding(horizontal = 20.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // 1. App Header
             Row(
@@ -92,11 +101,11 @@ fun DashboardScreen(
                         painter = painterResource(id = R.drawable.ic_launcher_round),
                         contentDescription = "App Logo",
                         modifier = Modifier
-                            .size(46.dp)
-                            .shadow(6.dp, RoundedCornerShape(14.dp), spotColor = Color(0x26FF5A79))
-                            .clip(RoundedCornerShape(14.dp))
+                            .size(48.dp)
+                            .shadow(6.dp, RoundedCornerShape(16.dp), spotColor = Color(0x26FF5A79))
+                            .clip(RoundedCornerShape(16.dp))
                             .background(Color.White)
-                            .border(1.5.dp, Color(0x99FFFFFF), RoundedCornerShape(14.dp))
+                            .border(1.5.dp, Color(0x99FFFFFF), RoundedCornerShape(16.dp))
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
@@ -105,7 +114,7 @@ fun DashboardScreen(
                             color = TextDarkPrimary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            letterSpacing = (-0.3).sp
+                            letterSpacing = (-0.4).sp
                         )
                         Text(
                             text = "Self-Hosted on Android",
@@ -121,7 +130,7 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 2. Battery Warning Banner (if enabled)
+            // 2. Battery Optimization Warning Banner (if needed)
             if (isBatteryOptimized) {
                 GlassCard(
                     modifier = Modifier
@@ -170,11 +179,12 @@ fun DashboardScreen(
                 }
             }
 
-            // 3. Primary Glowing Action Button (Start / Stop Server)
+            // 3. Primary Liquid Glass Button (Start / Stop Server)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(68.dp)
+                    .scale(buttonScale)
                     .shadow(
                         elevation = if (isRunning) 14.dp else 16.dp,
                         shape = RoundedCornerShape(26.dp),
@@ -184,7 +194,11 @@ fun DashboardScreen(
                     .clip(RoundedCornerShape(26.dp))
                     .background(brush = if (isRunning) StopButtonGradient else PrimaryButtonGradient)
                     .border(1.5.dp, Color(0x66FFFFFF), RoundedCornerShape(26.dp))
-                    .clickable(enabled = !isBusy) {
+                    .clickable(
+                        interactionSource = buttonInteractionSource,
+                        indication = null,
+                        enabled = !isBusy
+                    ) {
                         if (isRunning) onStopServer() else onStartServer()
                     },
                 contentAlignment = Alignment.Center
@@ -238,7 +252,7 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 4. QR Code Card (When Running)
+            // 4. QR Code Pairing Card (Shown when Running)
             if (isRunning) {
                 GlassCard(
                     modifier = Modifier
@@ -253,10 +267,11 @@ fun DashboardScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Scan to Pair",
+                            text = "Scan to Connect",
                             color = TextDarkPrimary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            letterSpacing = (-0.2).sp
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         QrCodeView(
@@ -276,19 +291,19 @@ fun DashboardScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 6. System Stats Card (Uptime, Memory, Heap Limit)
+            // 6. 3-Column System Stats Card
             SystemStatsCard(stats = systemStats)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 7. View Live Console Logs Card Button
+            // 7. View Live Console Logs Card
             GlassCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onOpenLogs() },
                 shape = RoundedCornerShape(24.dp),
-                backgroundColor = GlassCardBackground,
-                borderColor = GlassCardBorder,
+                backgroundColor = GlassSurface,
+                borderColor = GlassBorder,
                 elevation = 6.dp
             ) {
                 Row(
@@ -321,7 +336,8 @@ fun DashboardScreen(
                             text = "View Live Console Logs",
                             color = TextDarkPrimary,
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.2).sp
                         )
                     }
 

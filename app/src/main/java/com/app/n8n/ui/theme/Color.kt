@@ -3,49 +3,57 @@ package com.app.n8n.ui.theme
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-// Brand Colors
+// Primary Coral / Orange Liquid Brand Gradients
 val N8nCoral = Color(0xFFFF5A79)
-val N8nOrange = Color(0xFFFF7A59)
-val N8nOrangeDark = Color(0xFFE04E3A)
-val N8nOrangeLight = Color(0xFFFF9E7D)
+val N8nCoralDark = Color(0xFFE11D48)
+val N8nOrange = Color(0xFFFF7253)
+val N8nOrangeLight = Color(0xFFFF8B6B)
 
-// Text Colors for Light Glassmorphic Theme
-val TextDarkPrimary = Color(0xFF0F172A)
-val TextDarkSecondary = Color(0xFF475569)
-val TextDarkMuted = Color(0xFF64748B)
+// Text Colors (High-Contrast Slate / Neutral)
+val TextDarkPrimary = Color(0xFF0F172A)     // Deep slate navy
+val TextDarkSecondary = Color(0xFF334155)   // Muted slate
+val TextDarkMuted = Color(0xFF64748B)       // Soft caption slate
 
-// Legacy Text Colors
-val TextPrimary = Color(0xFF0F172A)
-val TextSecondary = Color(0xFF475569)
-val TextMuted = Color(0xFF64748B)
+// Backward-compatible Text Aliases
+val TextPrimary = TextDarkPrimary
+val TextSecondary = TextDarkSecondary
+val TextMuted = TextDarkMuted
 
-// Glassmorphism Surface Colors
-val GlassCardBackground = Color(0xB8FFFFFF)       // 72% opacity white
-val GlassCardBackgroundLight = Color(0xD9FFFFFF)  // 85% opacity white
-val GlassInnerCard = Color(0x66F1F5F9)            // 40% opacity light slate
-val GlassCardBorder = Color(0x80FFFFFF)           // 50% opacity white border
+// Liquid Glass Surface Tokens
+val GlassSurface = Color(0xCCFFFFFF)            // 80% opacity white
+val GlassSurfaceSubtle = Color(0x99FFFFFF)      // 60% opacity white
+val GlassSurfaceHighlight = Color(0xE6FFFFFF)   // 90% opacity white
+val GlassInnerSurface = Color(0x66F8FAFC)       // 40% opacity soft slate
+val GlassBorder = Color(0x99FFFFFF)             // 60% opacity white specular border
+val GlassBorderSubtle = Color(0x4DFFFFFF)       // 30% opacity subtle border
 
-// Dark / Terminal Surface Colors (for Log Viewer)
-val DarkBackground = Color(0xFF101216)
-val DarkSurface = Color(0xFF1B1E24)
-val DarkSurfaceVariant = Color(0xFF262A33)
-val DarkCardBorder = Color(0xFF333844)
+// Legacy Aliases
+val GlassCardBackground = GlassSurface
+val GlassCardBackgroundLight = GlassSurfaceHighlight
+val GlassInnerCard = GlassInnerSurface
+val GlassCardBorder = GlassBorder
 
-val TerminalBackground = Color(0xFF0C0E12)
+// Terminal & Dark Surface Tokens (For Console Drawer)
+val DarkBackground = Color(0xFF0B0D11)
+val DarkSurface = Color(0xFF14171F)
+val DarkSurfaceVariant = Color(0xFF1E232E)
+val DarkCardBorder = Color(0xFF2A3140)
+
+val TerminalBackground = Color(0xFF07090D)
 val TerminalText = Color(0xFFE2E8F0)
 
-// Status Colors
+// System Status Colors
 val StatusRunningGreen = Color(0xFF10B981)
 val StatusStoppedBlue = Color(0xFF6366F1)
 val StatusStartingYellow = Color(0xFFF59E0B)
 val StatusErrorRed = Color(0xFFEF4444)
 
-val StatusGreen = Color(0xFF10B981)
-val StatusBlue = Color(0xFF6366F1)
-val StatusYellow = Color(0xFFF59E0B)
-val StatusRed = Color(0xFFEF4444)
+val StatusGreen = StatusRunningGreen
+val StatusBlue = StatusStoppedBlue
+val StatusYellow = StatusStartingYellow
+val StatusRed = StatusErrorRed
 
-// Icon Badge Tint Colors
+// Icon Badge Tint Tokens
 val PinkBadgeBg = Color(0xFFFFE4E6)
 val PinkBadgeTint = Color(0xFFF43F5E)
 
@@ -55,21 +63,29 @@ val BlueBadgeTint = Color(0xFF4F46E5)
 val GreenBadgeBg = Color(0xFFDCFCE7)
 val GreenBadgeTint = Color(0xFF10B981)
 
-// Gradient Brushes
+val NeutralBadgeBg = Color(0xFFF1F5F9)
+val NeutralBadgeTint = Color(0xFF64748B)
+
+// Fluid Button & Component Grushes
 val PrimaryButtonGradient = Brush.horizontalGradient(
-    colors = listOf(Color(0xFFFF5A79), Color(0xFFFF7A59), Color(0xFFFF8E72))
+    colors = listOf(
+        Color(0xFFFF5A79),
+        Color(0xFFFF7253),
+        Color(0xFFFF8B6B)
+    )
 )
 
 val StopButtonGradient = Brush.horizontalGradient(
-    colors = listOf(Color(0xFFEF4444), Color(0xFFDC2626), Color(0xFFB91C1C))
+    colors = listOf(
+        Color(0xFFEF4444),
+        Color(0xFFDC2626),
+        Color(0xFFB91C1C)
+    )
 )
 
-val BackgroundMeshGradient = Brush.verticalGradient(
+val PrimaryButtonSpecularGradient = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFE2E8F0),
-        Color(0xFFEFF6FF),
-        Color(0xFFFFEDD5),
-        Color(0xFFFCE7F3),
-        Color(0xFFE0E7FF)
+        Color(0x66FFFFFF),
+        Color(0x00FFFFFF)
     )
 )

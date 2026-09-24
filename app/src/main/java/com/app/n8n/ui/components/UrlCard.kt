@@ -26,26 +26,23 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.app.n8n.ui.theme.GlassCardBackground
-import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.GlassBorder
+import com.app.n8n.ui.theme.GlassSurface
 import com.app.n8n.ui.theme.PinkBadgeBg
 import com.app.n8n.ui.theme.PinkBadgeTint
 import com.app.n8n.ui.theme.TextDarkMuted
 import com.app.n8n.ui.theme.TextDarkPrimary
-import com.app.n8n.ui.theme.TextDarkSecondary
 
 @Composable
 fun UrlCard(
@@ -58,8 +55,8 @@ fun UrlCard(
     GlassCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        backgroundColor = GlassCardBackground,
-        borderColor = GlassCardBorder
+        backgroundColor = GlassSurface,
+        borderColor = GlassBorder
     ) {
         Column(
             modifier = Modifier
@@ -91,12 +88,14 @@ fun UrlCard(
                         text = "Local Network Access",
                         color = TextDarkPrimary,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.2).sp
                     )
                     Text(
                         text = "Access your n8n instance on your Wi-Fi",
                         color = TextDarkMuted,
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -147,7 +146,7 @@ private fun UrlRowItem(
                 text = label,
                 color = TextDarkMuted,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
@@ -155,9 +154,11 @@ private fun UrlRowItem(
                 color = TextDarkPrimary,
                 fontSize = 14.5.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Bold
             )
         }
+
+        Spacer(modifier = Modifier.width(8.dp))
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -186,7 +187,7 @@ private fun UrlRowItem(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(CircleShape)
-                    .background(PinkBadgeBg.copy(alpha = 0.85f))
+                    .background(PinkBadgeBg.copy(alpha = 0.90f))
                     .border(1.dp, Color(0x66FFFFFF), CircleShape)
                     .clickable { onOpen() },
                 contentAlignment = Alignment.Center

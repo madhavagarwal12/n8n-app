@@ -179,11 +179,11 @@ class N8nProcessSupervisor(private val context: Context) {
                 return@withContext
             }
 
-            // Step 5: Install n8n globally via npm
+            // Step 5: Install n8n globally via npm with cache clearing and prefer-online resolution
             val step4 = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("npm install -g n8n --omit=dev --foreground-scripts"),
-                "Installing n8n globally via npm (this may take 2-4 minutes)"
+                shellPrefix + listOf("rm -rf /root/.npm/_cacache /root/.npm/_logs 2>/dev/null; npm cache clean --force 2>/dev/null || true; npm install -g n8n@2.40.6 --prefer-online --omit=dev --no-audit --no-fund --foreground-scripts"),
+                "Installing n8n (v2.40.6) globally via npm (this may take 2-4 minutes)"
             )
             if (!step4) {
                 emitLog("Failed to install n8n globally via npm.", LogLevel.ERROR)
@@ -326,7 +326,8 @@ class N8nProcessSupervisor(private val context: Context) {
             "-w", "/root",
             "/usr/bin/env", "-i",
             "HOME=/root",
-            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "NODE_OPTIONS=--max-old-space-size=1024"
         )
         fullCommand.addAll(innerCommand)
 

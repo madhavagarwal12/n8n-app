@@ -54,9 +54,12 @@ class N8nProcessSupervisor(private val context: Context) {
         _serverState.value = ServerState.STARTING
         emitLog("Initializing n8n server on $localIp:$port...", LogLevel.INFO)
 
-        val prootBin = extractor.prootBinary
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val nativeProot = File(nativeLibDir, "libproot.so")
+        val prootBin = if (nativeProot.exists()) nativeProot else extractor.prootBinary
         val rootfsDir = extractor.rootfsDir
         val dataDir = extractor.dataDir
+        val tmpDir = File(context.cacheDir, "proot_tmp").apply { mkdirs() }
 
         // Validate PRoot binary
         if (!prootBin.exists()) {
@@ -76,6 +79,7 @@ class N8nProcessSupervisor(private val context: Context) {
             "-b", "/proc",
             "-b", "/sys",
             "-b", "${dataDir.absolutePath}:/root/.n8n",
+            "-b", "${tmpDir.absolutePath}:/tmp",
             "-w", "/root",
             "/usr/bin/env", "-i",
             "HOME=/root",
@@ -90,11 +94,23 @@ class N8nProcessSupervisor(private val context: Context) {
         )
 
         try {
-            emitLog("Executing supervisor command:\n${commandList.joinToString(" ")}", LogLevel.DEBUG)
+            emitLog("Executing supervisor via ${prootBin.name} (Native lib dir: $nativeLibDir)", LogLevel.DEBUG)
 
             val processBuilder = ProcessBuilder(commandList)
                 .directory(context.filesDir)
                 .redirectErrorStream(false)
+
+            val env = processBuilder.environment()
+            env["LD_LIBRARY_PATH"] = nativeLibDir
+            val loader = File(nativeLibDir, "libproot-loader.so")
+            if (loader.exists()) {
+                env["PROOT_LOADER"] = loader.absolutePath
+            }
+            val loader32 = File(nativeLibDir, "libproot-loader32.so")
+            if (loader32.exists()) {
+                env["PROOT_LOADER_32"] = loader32.absolutePath
+            }
+            env["PROOT_TMP_DIR"] = tmpDir.absolutePath
 
             val p = processBuilder.start()
             process = p

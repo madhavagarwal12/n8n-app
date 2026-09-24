@@ -36,7 +36,12 @@ class FileExtractor(private val context: Context) {
     val binDir: File get() = File(context.filesDir, "bin")
     val rootfsDir: File get() = File(context.filesDir, "rootfs")
     val dataDir: File get() = File(context.filesDir, "data/.n8n")
-    val prootBinary: File get() = File(binDir, "proot")
+
+    val prootBinary: File
+        get() {
+            val nativeBin = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
+            return if (nativeBin.exists()) nativeBin else File(binDir, "proot")
+        }
 
     fun isInstalled(): Boolean {
         val sentinel = File(context.filesDir, SENTINEL_FILE)

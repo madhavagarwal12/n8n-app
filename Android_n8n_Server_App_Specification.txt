@@ -1,0 +1,275 @@
+﻿# SPECIFICATION & IMPLEMENTATION BLUEPRINT: ANDROID STANDALONE N8N SERVER APP
+================================================================================
+Document Type: Software Requirements Specification & Technical Architecture
+Target Audience: Senior Android Systems Engineer / AI Code Generation Agent
+Target Platform: Android 8.0+ (API Level 26+) | Architecture: arm64-v8a Only
+Primary Goal: Zero-config, single-tap local n8n server runner on Android exposing 
+              secure web access (HTTP/HTTPS) over local Wi-Fi with mDNS discovery.
+================================================================================
+
+
+1. EXECUTIVE SUMMARY & OBJECTIVE
+--------------------------------------------------------------------------------
+The objective is to produce a native Android application that runs a full instance 
+of n8n (workflow automation tool) natively on non-rooted Android hardware. 
+The app provides a minimalist user interface with:
+  - Single-button Start / Stop server control.
+  - Active local Wi-Fi IP address display with clickable link.
+  - Dynamic QR code generation for one-scan connection from other network devices.
+  - Real-time embedded console log viewer with error highlighting.
+  - Background execution persistence using Android Foreground Service, CPU Partial
+    WakeLock, and High-Performance Wi-Fi Lock.
+  - Embedded reverse proxy (Caddy or Node-based) for local TLS termination and 
+    mDNS network broadcasting.
+
+
+2. ARCHITECTURAL OVERVIEW
+--------------------------------------------------------------------------------
+Standard Android cannot run Docker containers due to missing Linux kernel 
+namespaces/cgroups and root restrictions. Running raw Node.js compiled against 
+Bionic libc often fails due to dynamic linking and hardcoded paths (/bin/sh, etc.)
+required by n8n native C++ dependencies (e.g., SQLite3, bcrypt).
+
+
+SOLUTION ARCHITECTURE: PRoot + Pre-built Rootfs Container
++-----------------------------------------------------------------------------+
+|                               Android OS                                    |
+|                                                                             |
+|  +-----------------------------------------------------------------------+  |
+|  |                        Target Application                             |  |
+|  |                                                                       |  |
+|  |  [ UI Layer: Jetpack Compose ]                                        |  |
+|  |         |                                                             |  |
+|  |         v                                                             |  |
+|  |  [ Foreground Service (Lifecycle, WakeLocks, Network State) ]         |  |
+|  |         |                                                             |  |
+|  |         v                                                             |  |
+|  |  [ Process Manager (ForkExec / ProcessBuilder) ]                      |  |
+|  |         |                                                             |  |
+|  |         v (Executes in /data/data/com.app.n8nserver/files/)           |  |
+|  |    +---------------------------------------------------------------+  |  |
+|  |    |  PRoot Binary (Intercepts ptrace/syscalls to emulate root/FHS)|  |  |
+|  |    |     |                                                         |  |  |
+|  |    |     +--> Rootfs (Alpine / Debian arm64)                       |  |  |
+|  |    |            |-- Node.js v20 LTS Runtime                        |  |  |
+|  |    |            |-- Global npm package: n8n                        |  |  |
+|  |    |            |-- Reverse Proxy (Caddy arm64 or Node reverse-tls)|  |  |
+|  |    |            |-- Persistent volume mount (/root/.n8n -> app dir)|  |  |
+|  |    +---------------------------------------------------------------+  |  |
+|  +-----------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------+
+                                     |
+                       Local Wi-Fi Network Broadcast
+                                     |
+                                     v
+                 Clients (Laptops, Tablets, Phones on LAN)
+                       http(s)://192.168.x.x:5678 or .local
+
+
+3. CORE SUBSYSTEM REQUIREMENTS
+--------------------------------------------------------------------------------
+
+
+3.1. STORAGE & BOOTSTRAP SUBSYSTEM
+- Assets Packaging Strategy:
+  - Do NOT bundle raw node_modules uncompressed into APK. APK size must be optimized.
+  - Provide a precompiled rootfs archive: `rootfs-arm64.tar.xz` (~120MB to 160MB).
+  - Two delivery options:
+    A) Bundled directly in APK assets (simpler distribution, larger initial APK).
+    B) Downloaded on first app launch from a GitHub release CDN with sha256 check.
+- Extraction & File Layout:
+  - Destination: `context.filesDir.absolutePath`
+  - Structure:
+    /data/data/com.app.n8n/files/
+      ├── bin/
+      │   └── proot                      (Executable bit +x)
+      ├── rootfs/                        (Decompressed FHS directory)
+      │   ├── bin/, etc/, usr/, lib/
+      │   └── usr/local/bin/n8n
+      └── data/                          (Persisted user data outside rootfs)
+          └── .n8n/                      (Workflows, SQLite database, configs)
+- Decompression Engine:
+  - Use Apache Commons Compress + XZ for Java (`org.tukaani:xz`) for streaming 
+    decompression directly onto disk with progress callbacks (0% to 100%).
+  - Ensure symlinks and file permissions (0755 for executables) are preserved.
+
+
+3.2. SYSTEM EXECUTION & PROCESS SUPERVISOR
+- Launch Command Template:
+  The process manager executes PRoot via `java.lang.ProcessBuilder`:
+  ```
+  proot     -0     -r /data/data/com.app.n8n/files/rootfs     -b /dev     -b /proc     -b /sys     -b /data/data/com.app.n8n/files/data/.n8n:/root/.n8n     -w /root     /usr/bin/env -i     HOME=/root     PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin     NODE_OPTIONS="--max-old-space-size=512"     N8N_HOST="0.0.0.0"     N8N_PORT="5678"     N8N_SECURE_COOKIE="false"     N8N_DIAGNOSTICS_ENABLED="false"     WEBHOOK_URL="http://<LOCAL_IP>:5678/"     /usr/local/bin/n8n start
+  ```
+- Graceful Shutdown:
+  - When stopping the service, do not kill with SIGKILL (-9).
+  - Send SIGTERM (-15) or SIGINT (-2) to the PRoot process tree.
+  - Allow up to 10 seconds for n8n to flush the SQLite write-ahead log (`n8n.sqlite`).
+
+
+3.3. BACKGROUND EXECUTION & WAKE ENFORCEMENT
+- Foreground Service:
+  - Service Type: `foregroundServiceType="dataSync|specialUse"` (Android 14+ compliant).
+  - Ongoing, non-dismissible notification indicating:
+    - Status: "n8n server running"
+    - Current URL: "http://192.168.1.150:5678"
+    - Action button: "Stop Server"
+- Power Locks:
+  - PowerManager.WakeLock: `PARTIAL_WAKE_LOCK` (prevents CPU sleep when screen is off).
+  - WifiManager.WifiLock: `WIFI_MODE_FULL_HIGH_PERF` (forces low-latency, active Wi-Fi).
+- Battery Optimization Intent:
+  - On first boot, prompt user with `Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+    to prevent vendor Doze kill (Samsung, Xiaomi, OnePlus).
+
+
+3.4. LOCAL DISCOVERY & NETWORK MANAGEMENT
+- IP Address Resolution:
+  - Real-time monitor listening to `ConnectivityManager.NetworkCallback`.
+  - Extract IPv4 address bound to `wlan0` or active Wi-Fi interface.
+  - Detect state changes (Wi-Fi disconnected, switched networks) and update UI/Webhooks.
+- mDNS Broadcast:
+  - Use Android's `NsdManager` to register a local service:
+    - Service Name: "n8n-android"
+    - Service Type: "_http._tcp"
+    - Port: 5678
+  - Allows zero-config resolution via `http://n8n-android.local:5678` on supported devices.
+- Reverse Proxy for TLS / HTTPS (Local Wi-Fi):
+  - Packaged embedded Caddy binary (ARM64) or Node HTTPS wrapper.
+  - Self-signed cert or local CA auto-generation.
+  - Exposes port 8443 (HTTPS) forwarding to localhost 5678.
+
+
+3.5. USER INTERFACE (JETPACK COMPOSE)
+- Screen 1: Bootstrap / Installation State:
+  - Clean indicator: "Setting up automation environment (One-time setup)..."
+  - Progress bar with percentage and step details.
+- Screen 2: Main Dashboard:
+  - Large Toggle Button: START / STOP.
+  - Active Server Status Pill: [STOPPED / INITIALIZING / RUNNING / ERROR].
+  - Large QR Code (using ZXing Android Embedded): Encodes active server URL.
+  - Tap-to-copy URL card: "http://192.168.1.45:5678".
+  - System Stats Widget: Memory usage (MB), uptime counter.
+- Screen 3: Live Logs Drawer / BottomSheet:
+  - Terminal-style monospaced log stream.
+  - Search / Filter by string or severity (INFO, WARN, ERROR).
+  - "Clear Logs" and "Copy All Logs" buttons.
+
+
+4. STEP-BY-STEP IMPLEMENTATION INSTRUCTIONS FOR THE DEVELOPER
+--------------------------------------------------------------------------------
+
+
+STEP 1: ROOTFS CREATION (Automated Pipeline on Host Dev Machine)
+Run this bash script on an ARM64 machine (or via Docker with `buildx`):
+```bash
+#!/bin/bash
+set -e
+ROOTFS_DIR="./rootfs-arm64"
+mkdir -p "$ROOTFS_DIR"
+
+
+# Download minimal Alpine Linux rootfs (ARM64)
+curl -fsSL https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.0-aarch64.tar.gz | tar -xz -C "$ROOTFS_DIR"
+
+
+# Chroot/PRoot to install dependencies
+proot -0 -r "$ROOTFS_DIR" /bin/sh << 'EOF'
+apk update
+apk add --no-cache nodejs npm python3 make g++ sqlite ca-certificates
+npm install -g n8n --omit=dev --foreground-scripts
+rm -rf /var/cache/apk/* /root/.npm
+EOF
+
+
+# Compress into distributable payload
+tar -cJvf n8n-rootfs-arm64.tar.xz -C "$ROOTFS_DIR" .
+```
+
+
+STEP 2: ANDROID PROJECT CONFIGURATION
+In `app/build.gradle.kts`:
+- Set `minSdk = 26`, `targetSdk = 34`.
+- Set `ndk { abiFilters += listOf("arm64-v8a") }`.
+- Dependencies:
+  - `androidx.compose.*`
+  - `com.google.zxing:core:3.5.3`
+  - `org.tukaani:xz:1.9`
+  - `org.apache.commons:commons-compress:1.26.1`
+  - `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0`
+
+
+STEP 3: ANDROID MANIFEST PERMISSIONS
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+
+<application
+    android:largeHeap="true"
+    android:extractNativeLibs="true"
+    android:usesCleartextTraffic="true">
+    ...
+</application>
+```
+
+
+STEP 4: KOTLIN CLASS STUBS & INTERFACES
+
+
+A) FileExtractor.kt
+- Responsible for unpacking `rootfs-arm64.tar.xz` into `context.filesDir/rootfs`.
+- Must parse tar header permissions to set executable flags (`setExecutable(true)`).
+
+
+B) N8nProcessSupervisor.kt
+- Manages the PRoot child process.
+- Captures stdout/stderr via non-blocking BufferedReader and pushes lines into a 
+  `SharedFlow<String>` or `StateFlow<List<LogEntry>>`.
+- Exposes `startServer(ip: String, port: Int)` and `stopServer()`.
+
+
+C) ServerForegroundService.kt
+- Runs in separate background lifecycle.
+- Holds `WifiLock` and `WakeLock`.
+- Binds with UI via IPC / LocalBinder.
+
+
+D) NetworkHelper.kt
+- Dynamically resolves current Wi-Fi IPv4 address.
+- Registers mDNS service using `NsdManager`.
+
+
+5. CRITICAL EDGE CASES & MITIGATION MATRIX
+--------------------------------------------------------------------------------
+1. OUT-OF-MEMORY (OOM) KILL:
+   - Risk: n8n workflow spikes memory; Android LMK kills the app.
+   - Fix: Pass `NODE_OPTIONS="--max-old-space-size=512"`. Set `android:largeHeap="true"`.
+     Suggest 4GB+ RAM devices in app description.
+
+
+2. WI-FI DISCONNECTION / IP CHANGE:
+   - Risk: Router DHCP re-assigns device IP; remote browsers drop connection.
+   - Fix: `ConnectivityManager.NetworkCallback` detects link changes. Update notification,
+     regenerate UI QR code, and update `WEBHOOK_URL` dynamically.
+
+
+3. UNCLEAN DATABASE LOCKS:
+   - Risk: Force closing app leaves SQLite `.n8n/n8n.sqlite` locked.
+   - Fix: Trap Android lifecycle `onDestroy()` in `Service`, send `SIGTERM`, wait for
+     exit code 0 before letting process die.
+
+
+4. PERMISSION DENIED ON PROOT EXECUTION:
+   - Risk: Android 10+ W^X (Write XOR Execute) security policy on storage.
+   - Fix: The PRoot binary must reside in `context.filesDir` (or `context.applicationInfo.nativeLibraryDir`),
+     and executed directly from there.
+
+
+================================================================================
+END OF SPECIFICATION DOCUMENT
+================================================================================

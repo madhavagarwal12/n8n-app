@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">n8n Server</string>
+    <string name="notification_channel_name">n8n Server Status</string>
+    <string name="notification_channel_desc">Shows ongoing server status and controls</string>
+    <string name="server_running">n8n server running</string>
+    <string name="server_stopped">n8n server stopped</string>
+    <string name="action_stop">Stop Server</string>
+</resources>

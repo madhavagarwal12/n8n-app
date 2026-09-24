@@ -1,0 +1,17 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+output-metadata.json
+__pycache__/
+*.pyc
+generate_icons.py
+generate_showcase.py
+embed_base64_preview.py

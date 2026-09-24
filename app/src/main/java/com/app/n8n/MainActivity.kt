@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
             N8nTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = DarkBackground
+                    color = androidx.compose.ui.graphics.Color.Transparent
                 ) {
                     val serverState by viewModel.serverState.collectAsState()
                     val systemStats by viewModel.systemStats.collectAsState()

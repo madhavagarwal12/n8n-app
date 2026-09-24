@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 // Brand Colors
 val N8nCoral = Color(0xFFFF5A79)
 val N8nOrange = Color(0xFFFF7A59)
+val N8nOrangeDark = Color(0xFFE04E3A)
 val N8nOrangeLight = Color(0xFFFF9E7D)
 
 // Text Colors for Light Glassmorphic Theme
@@ -13,17 +14,36 @@ val TextDarkPrimary = Color(0xFF0F172A)
 val TextDarkSecondary = Color(0xFF475569)
 val TextDarkMuted = Color(0xFF64748B)
 
+// Legacy Text Colors
+val TextPrimary = Color(0xFF0F172A)
+val TextSecondary = Color(0xFF475569)
+val TextMuted = Color(0xFF64748B)
+
 // Glassmorphism Surface Colors
 val GlassCardBackground = Color(0xB8FFFFFF)       // 72% opacity white
 val GlassCardBackgroundLight = Color(0xD9FFFFFF)  // 85% opacity white
 val GlassInnerCard = Color(0x66F1F5F9)            // 40% opacity light slate
 val GlassCardBorder = Color(0x80FFFFFF)           // 50% opacity white border
 
+// Dark / Terminal Surface Colors (for Log Viewer)
+val DarkBackground = Color(0xFF101216)
+val DarkSurface = Color(0xFF1B1E24)
+val DarkSurfaceVariant = Color(0xFF262A33)
+val DarkCardBorder = Color(0xFF333844)
+
+val TerminalBackground = Color(0xFF0C0E12)
+val TerminalText = Color(0xFFE2E8F0)
+
 // Status Colors
 val StatusRunningGreen = Color(0xFF10B981)
 val StatusStoppedBlue = Color(0xFF6366F1)
 val StatusStartingYellow = Color(0xFFF59E0B)
 val StatusErrorRed = Color(0xFFEF4444)
+
+val StatusGreen = Color(0xFF10B981)
+val StatusBlue = Color(0xFF6366F1)
+val StatusYellow = Color(0xFFF59E0B)
+val StatusRed = Color(0xFFEF4444)
 
 // Icon Badge Tint Colors
 val PinkBadgeBg = Color(0xFFFFE4E6)

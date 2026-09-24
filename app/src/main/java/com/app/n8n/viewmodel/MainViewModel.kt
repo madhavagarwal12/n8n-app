@@ -155,9 +155,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun bindService() {
-        val app = getApplication<Application>()
-        val intent = Intent(app, ServerForegroundService::class.java)
-        app.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try {
+            val app = getApplication<Application>()
+            val intent = Intent(app, ServerForegroundService::class.java)
+            app.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        } catch (e: Exception) {
+            android.util.Log.e("MainViewModel", "Error binding service", e)
+        }
     }
 
     private fun addLog(entry: LogEntry) {

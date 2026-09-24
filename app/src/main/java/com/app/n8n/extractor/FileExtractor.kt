@@ -129,7 +129,7 @@ class FileExtractor(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
-    private fun downloadFile(urlStr: String, destination: File, onProgress: suspend (Float) -> Unit) {
+    private suspend fun downloadFile(urlStr: String, destination: File, onProgress: suspend (Float) -> Unit) {
         val url = URL(urlStr)
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 15000
@@ -144,6 +144,7 @@ class FileExtractor(private val context: Context) {
         val totalLength = connection.contentLength
         var downloaded = 0L
 
+        destination.parentFile?.mkdirs()
         connection.inputStream.use { input ->
             FileOutputStream(destination).use { output ->
                 val buffer = ByteArray(8192)
@@ -153,7 +154,7 @@ class FileExtractor(private val context: Context) {
                     downloaded += bytesRead
                     if (totalLength > 0) {
                         val progress = downloaded.toFloat() / totalLength
-                        kotlinx.coroutines.runBlocking { onProgress(progress) }
+                        onProgress(progress)
                     }
                 }
             }

@@ -88,13 +88,18 @@ class N8nProcessSupervisor(private val context: Context) {
         shFile.setExecutable(true, false)
         busyboxFile.setExecutable(true, false)
 
+        // Ensure DNS & networking config in rootfs
+        val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
+        File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+        File(etcDir, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
+
         val webhookUrl = "http://$localIp:$port/"
 
         // Check if n8n or node is installed inside rootfs
-        val n8nBinary = File(rootfsDir, "usr/local/bin/n8n")
-        val nodeBinary = File(rootfsDir, "usr/bin/node")
+        val hasN8n = File(rootfsDir, "usr/local/bin/n8n").exists() || File(rootfsDir, "usr/bin/n8n").exists()
+        val hasNode = File(rootfsDir, "usr/bin/node").exists() || File(rootfsDir, "usr/local/bin/node").exists()
 
-        if (!n8nBinary.exists() || !nodeBinary.exists()) {
+        if (!hasN8n || !hasNode) {
             emitLog("Node.js / n8n package not found in rootfs. Starting one-time automated package setup...", LogLevel.INFO)
             val shellCmd = if (shFile.exists()) "/bin/sh" else "/bin/busybox"
             val setupSuccess = runProotCommand(
@@ -117,7 +122,7 @@ class N8nProcessSupervisor(private val context: Context) {
             emitLog("n8n package setup completed successfully!", LogLevel.INFO)
         }
 
-        // Launch n8n start
+        // Launch n8n start via sh to auto-resolve PATH
         val commandList = listOf(
             prootBin.absolutePath,
             "-0",
@@ -137,7 +142,7 @@ class N8nProcessSupervisor(private val context: Context) {
             "N8N_SECURE_COOKIE=false",
             "N8N_DIAGNOSTICS_ENABLED=false",
             "WEBHOOK_URL=$webhookUrl",
-            "/usr/local/bin/n8n", "start"
+            "/bin/sh", "-c", "exec n8n start"
         )
 
         try {

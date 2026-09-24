@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,11 +19,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -30,18 +32,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.app.n8n.ui.theme.DarkCardBorder
-import com.app.n8n.ui.theme.DarkSurface
-import com.app.n8n.ui.theme.DarkSurfaceVariant
-import com.app.n8n.ui.theme.N8nOrange
-import com.app.n8n.ui.theme.TextMuted
-import com.app.n8n.ui.theme.TextPrimary
-import com.app.n8n.ui.theme.TextSecondary
+import com.app.n8n.ui.theme.GlassCardBackground
+import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.PinkBadgeBg
+import com.app.n8n.ui.theme.PinkBadgeTint
+import com.app.n8n.ui.theme.TextDarkMuted
+import com.app.n8n.ui.theme.TextDarkPrimary
+import com.app.n8n.ui.theme.TextDarkSecondary
 
 @Composable
 fun UrlCard(
@@ -51,56 +55,77 @@ fun UrlCard(
 ) {
     val context = LocalContext.current
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(DarkSurface)
-            .border(1.dp, DarkCardBorder, RoundedCornerShape(16.dp))
-            .padding(16.dp)
+    GlassCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        backgroundColor = GlassCardBackground,
+        borderColor = GlassCardBorder
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Language,
-                contentDescription = null,
-                tint = N8nOrange,
-                modifier = Modifier.size(20.dp)
+            // Header Row
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFF1F5F9))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Language,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Local Network Access",
+                        color = TextDarkPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Access your n8n instance on your Wi-Fi",
+                        color = TextDarkMuted,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Direct IP Row Card
+            UrlRowItem(
+                label = "Direct IP",
+                url = httpUrl,
+                onCopy = { copyToClipboard(context, httpUrl, "IP URL copied!") },
+                onOpen = { openInBrowser(context, httpUrl) }
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Local Network Access",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // mDNS Host Row Card
+            UrlRowItem(
+                label = "mDNS Host",
+                url = mdnsUrl,
+                onCopy = { copyToClipboard(context, mdnsUrl, "mDNS URL copied!") },
+                onOpen = { openInBrowser(context, mdnsUrl) }
             )
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Main IP URL row
-        UrlRow(
-            label = "Direct IP",
-            url = httpUrl,
-            onCopy = { copyToClipboard(context, httpUrl, "IP URL copied") },
-            onOpen = { openInBrowser(context, httpUrl) }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // mDNS URL row
-        UrlRow(
-            label = "mDNS Host",
-            url = mdnsUrl,
-            onCopy = { copyToClipboard(context, mdnsUrl, "mDNS URL copied") },
-            onOpen = { openInBrowser(context, mdnsUrl) }
-        )
     }
 }
 
 @Composable
-private fun UrlRow(
+private fun UrlRowItem(
     label: String,
     url: String,
     onCopy: () -> Unit,
@@ -109,50 +134,68 @@ private fun UrlRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(DarkSurfaceVariant)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0x80F8FAFC))
+            .border(1.5.dp, Color(0x99FFFFFF), RoundedCornerShape(18.dp))
             .clickable { onCopy() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
-                color = TextMuted,
-                fontSize = 10.sp,
+                color = TextDarkMuted,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
             )
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = url,
-                color = TextPrimary,
-                fontSize = 14.sp,
+                color = TextDarkPrimary,
+                fontSize = 14.5.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.SemiBold
             )
         }
 
-        Row {
-            IconButton(
-                onClick = onCopy,
-                modifier = Modifier.size(32.dp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Copy Button (Neutral frosted circle)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xD9FFFFFF))
+                    .border(1.dp, Color(0x80FFFFFF), CircleShape)
+                    .clickable { onCopy() },
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
-                    contentDescription = "Copy",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(16.dp)
+                    contentDescription = "Copy URL",
+                    tint = Color(0xFF64748B),
+                    modifier = Modifier.size(17.dp)
                 )
             }
-            IconButton(
-                onClick = onOpen,
-                modifier = Modifier.size(32.dp)
+
+            // Open in browser button (Soft coral frosted circle)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(PinkBadgeBg.copy(alpha = 0.85f))
+                    .border(1.dp, Color(0x66FFFFFF), CircleShape)
+                    .clickable { onOpen() },
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.OpenInBrowser,
-                    contentDescription = "Open Browser",
-                    tint = N8nOrange,
-                    modifier = Modifier.size(18.dp)
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = "Open in Browser",
+                    tint = PinkBadgeTint,
+                    modifier = Modifier.size(17.dp)
                 )
             }
         }

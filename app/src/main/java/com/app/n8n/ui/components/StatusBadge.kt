@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,15 +22,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.n8n.model.ServerState
-import com.app.n8n.ui.theme.StatusBlue
-import com.app.n8n.ui.theme.StatusGreen
-import com.app.n8n.ui.theme.StatusRed
-import com.app.n8n.ui.theme.StatusYellow
+import com.app.n8n.ui.theme.GlassCardBackgroundLight
+import com.app.n8n.ui.theme.GlassCardBorder
+import com.app.n8n.ui.theme.StatusErrorRed
+import com.app.n8n.ui.theme.StatusRunningGreen
+import com.app.n8n.ui.theme.StatusStartingYellow
+import com.app.n8n.ui.theme.StatusStoppedBlue
+import com.app.n8n.ui.theme.TextDarkPrimary
+import com.app.n8n.ui.theme.TextDarkSecondary
 
 @Composable
 fun StatusBadge(
@@ -40,13 +43,13 @@ fun StatusBadge(
     modifier: Modifier = Modifier
 ) {
     val (statusColor, label) = when (state) {
-        ServerState.RUNNING -> StatusGreen to "RUNNING"
-        ServerState.STARTING -> StatusYellow to "STARTING..."
-        ServerState.STOPPING -> StatusYellow to "STOPPING..."
-        ServerState.EXTRACTING -> StatusBlue to "INSTALLING"
-        ServerState.ERROR -> StatusRed to "ERROR"
-        ServerState.STOPPED -> Color.Gray to "STOPPED"
-        ServerState.NOT_INSTALLED -> Color.Gray to "NOT INSTALLED"
+        ServerState.RUNNING -> StatusRunningGreen to "Running"
+        ServerState.STARTING -> StatusStartingYellow to "Starting..."
+        ServerState.STOPPING -> StatusStartingYellow to "Stopping..."
+        ServerState.EXTRACTING -> StatusStoppedBlue to "Setting Up"
+        ServerState.ERROR -> StatusErrorRed to "Error"
+        ServerState.STOPPED -> StatusStoppedBlue to "Stopped"
+        ServerState.NOT_INSTALLED -> StatusStoppedBlue to "Stopped"
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -60,7 +63,7 @@ fun StatusBadge(
         label = "alpha"
     )
 
-    val dotAlpha = if (state == ServerState.RUNNING || state == ServerState.STARTING || state == ServerState.EXTRACTING) {
+    val dotAlpha = if (state == ServerState.RUNNING || state == ServerState.STARTING) {
         alphaAnim
     } else {
         1.0f
@@ -68,26 +71,26 @@ fun StatusBadge(
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(50.dp))
-            .background(statusColor.copy(alpha = 0.12f))
-            .border(1.dp, statusColor.copy(alpha = 0.35f), RoundedCornerShape(50.dp))
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .shadow(4.dp, CircleShape, clip = false, spotColor = Color(0x14000000))
+            .clip(CircleShape)
+            .background(GlassCardBackgroundLight)
+            .border(1.5.dp, GlassCardBorder, CircleShape)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(7.dp)
                 .alpha(dotAlpha)
                 .clip(CircleShape)
                 .background(statusColor)
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(7.dp))
         Text(
             text = label,
-            color = statusColor,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            letterSpacing = 1.sp
+            color = TextDarkSecondary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp
         )
     }
 }

@@ -27,11 +27,26 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Prepare Rootfs Assets
+      - name: Set up QEMU for ARM64 Emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Pre-build Complete n8n ARM64 Rootfs
         run: |
           mkdir -p app/src/main/assets
-          echo "Downloading Alpine ARM64 rootfs payload..."
-          curl -fsSL "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.0-aarch64.tar.gz" -o "app/src/main/assets/n8n-rootfs-arm64.tar.gz"
+          echo "Building complete pre-installed n8n ARM64 rootfs in Docker container..."
+          docker run --platform linux/arm64 --name n8n_builder alpine:3.21 /bin/sh -c "
+            apk update && \
+            apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++ && \
+            npm install -g n8n@2.40.6 --prefer-online --omit=dev --no-audit --no-fund && \
+            mkdir -p /root/.n8n /tmp && \
+            rm -rf /root/.npm /var/cache/apk/* /tmp/*
+          "
+          echo "Exporting and compressing pre-built rootfs to app/src/main/assets/n8n-rootfs-arm64.tar.xz..."
+          docker export n8n_builder | xz -6e -T0 > app/src/main/assets/n8n-rootfs-arm64.tar.xz
+          docker rm n8n_builder
+          echo "Generated asset size:"
           ls -lh app/src/main/assets/
 
       - name: Grant Execute Permissions

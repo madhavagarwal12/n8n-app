@@ -88,10 +88,21 @@ class N8nProcessSupervisor(private val context: Context) {
         shFile.setExecutable(true, false)
         busyboxFile.setExecutable(true, false)
 
-        // Ensure DNS & networking config in rootfs
+        // Ensure DNS, networking, and Alpine v3.21 repositories (for Node.js 22 LTS) in rootfs
         val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
         File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
         File(etcDir, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
+        val apkDir = File(etcDir, "apk").apply { mkdirs() }
+        File(apkDir, "repositories").writeText(
+            "https://dl-cdn.alpinelinux.org/alpine/v3.21/main\n" +
+            "https://dl-cdn.alpinelinux.org/alpine/v3.21/community\n"
+        )
+
+        // Ensure all rootfs files and directories have write/read permissions
+        extractor.ensurePermissions(rootfsDir)
+        tmpDir.setReadable(true, false)
+        tmpDir.setWritable(true, false)
+        tmpDir.setExecutable(true, false)
 
         val webhookUrl = "http://$localIp:$port/"
         val shellPrefix = getShellPrefix(rootfsDir)
@@ -125,19 +136,26 @@ class N8nProcessSupervisor(private val context: Context) {
         if (!isInstalledAndVerified) {
             emitLog("Starting step-by-step automated package bootstrap...", LogLevel.INFO)
 
-            // Step 1: Harmless shell test
+            // Step 1: Harmless shell & filesystem write/create/rename/delete test inside rootfs
             val step1 = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("echo SHELL_OK"),
-                "Testing rootfs shell execution (echo SHELL_OK)"
+                shellPrefix + listOf("echo SHELL_OK && mkdir -p /tmp/fs_test && echo TEST_WRITE > /tmp/fs_test/write.tmp && mv /tmp/fs_test/write.tmp /tmp/fs_test/renamed.tmp && cat /tmp/fs_test/renamed.tmp && rm -rf /tmp/fs_test && echo FS_OK"),
+                "Testing rootfs shell execution and filesystem create/write/rename/delete operations"
             )
             if (!step1) {
-                emitLog("Rootfs shell execution failed. Cannot proceed with package setup.", LogLevel.ERROR)
+                emitLog("Rootfs shell/filesystem sanity test failed. Cannot proceed with package setup.", LogLevel.ERROR)
                 _serverState.value = ServerState.ERROR
                 return@withContext
             }
 
-            // Step 2: Test apk update separately
+            // Step 2: Clean leftover locks or .apk-new files from previous partial attempts
+            runProotCommand(
+                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+                shellPrefix + listOf("rm -f /lib/apk/db/lock /var/cache/apk/* 2>/dev/null; find / -name \"*.apk-new\" -delete 2>/dev/null || true"),
+                "Cleaning stale package locks and temporary artifacts"
+            )
+
+            // Step 3: Test apk update separately with Alpine 3.21 repositories
             val step2 = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("apk update"),
@@ -149,11 +167,11 @@ class N8nProcessSupervisor(private val context: Context) {
                 return@withContext
             }
 
-            // Step 3: Install Node.js, npm, and prerequisites via apk
+            // Step 4: Install Node.js (22.x LTS), npm, and build prerequisites via apk
             val step3 = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++"),
-                "Installing Node.js, npm, and build dependencies via apk"
+                "Installing Node.js 22 LTS, npm, and build dependencies via apk"
             )
             if (!step3) {
                 emitLog("Failed to install Node.js/npm dependencies via apk.", LogLevel.ERROR)
@@ -161,7 +179,7 @@ class N8nProcessSupervisor(private val context: Context) {
                 return@withContext
             }
 
-            // Step 4: Install n8n globally via npm
+            // Step 5: Install n8n globally via npm
             val step4 = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("npm install -g n8n --omit=dev --foreground-scripts"),
@@ -173,7 +191,7 @@ class N8nProcessSupervisor(private val context: Context) {
                 return@withContext
             }
 
-            // Step 5: Verification of node, npm, and n8n
+            // Step 6: Verification of node, npm, and n8n versions
             val verifyNode = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("node --version"),
@@ -199,9 +217,13 @@ class N8nProcessSupervisor(private val context: Context) {
             emitLog("n8n package setup verified and completed successfully!", LogLevel.INFO)
         }
 
+        // Ensure permissions once more before launch
+        extractor.ensurePermissions(rootfsDir)
+
         // Launch n8n start via shell prefix to auto-resolve PATH
         val commandList = listOf(
             prootBin.absolutePath,
+            "--link2symlink",
             "-0",
             "-r", rootfsDir.absolutePath,
             "-b", "/dev",
@@ -293,6 +315,7 @@ class N8nProcessSupervisor(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         val fullCommand = mutableListOf(
             prootBin.absolutePath,
+            "--link2symlink",
             "-0",
             "-r", rootfsDir.absolutePath,
             "-b", "/dev",

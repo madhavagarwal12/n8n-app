@@ -108,20 +108,30 @@ class FileExtractor(private val context: Context) {
                 tempArchive.delete()
             }
 
-            // Configure DNS resolv.conf inside rootfs
+            // Configure DNS resolv.conf and Alpine v3.21 repositories (for Node.js 22 LTS)
             val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
             File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
+            File(etcDir, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
+            val apkDir = File(etcDir, "apk").apply { mkdirs() }
+            File(apkDir, "repositories").writeText(
+                "https://dl-cdn.alpinelinux.org/alpine/v3.21/main\n" +
+                "https://dl-cdn.alpinelinux.org/alpine/v3.21/community\n"
+            )
 
             // Ensure busybox and sh are executable and valid
             val busybox = File(rootfsDir, "bin/busybox")
             val shFile = File(rootfsDir, "bin/sh")
 
             if (busybox.exists()) {
+                busybox.setReadable(true, false)
+                busybox.setWritable(true, false)
                 busybox.setExecutable(true, false)
                 // If sh does not exist as a direct file or broken symlink, duplicate busybox as sh
                 if (!shFile.exists()) {
                     try {
                         busybox.copyTo(shFile, overwrite = true)
+                        shFile.setReadable(true, false)
+                        shFile.setWritable(true, false)
                         shFile.setExecutable(true, false)
                     } catch (e: Exception) {
                         Log.w(TAG, "Could not copy busybox to sh", e)
@@ -211,13 +221,19 @@ class FileExtractor(private val context: Context) {
 
                 if (entry.isDirectory) {
                     destFile.mkdirs()
+                    destFile.setReadable(true, false)
+                    destFile.setWritable(true, false)
+                    destFile.setExecutable(true, false)
                 } else if (entry.isSymbolicLink) {
                     createSymlink(destFile, entry.linkName)
                 } else {
                     destFile.parentFile?.mkdirs()
+                    destFile.parentFile?.setWritable(true, false)
                     FileOutputStream(destFile).use { output ->
                         tarIn.copyTo(output)
                     }
+                    destFile.setReadable(true, false)
+                    destFile.setWritable(true, false)
                     if (entry.mode and 0b001001001 != 0) {
                         destFile.setExecutable(true, false)
                     }
@@ -252,6 +268,8 @@ class FileExtractor(private val context: Context) {
             }
             if (resolvedTarget.exists() && resolvedTarget.isFile) {
                 resolvedTarget.copyTo(linkFile, overwrite = true)
+                linkFile.setReadable(true, false)
+                linkFile.setWritable(true, false)
                 linkFile.setExecutable(true, false)
             } else {
                 linkFile.writeText(target)
@@ -261,15 +279,18 @@ class FileExtractor(private val context: Context) {
         }
     }
 
-    private fun ensurePermissions(file: File) {
+    fun ensurePermissions(file: File) {
+        file.setReadable(true, false)
+        file.setWritable(true, false)
         if (file.isDirectory) {
-            file.setReadable(true, false)
             file.setExecutable(true, false)
             file.listFiles()?.forEach { ensurePermissions(it) }
         } else {
-            file.setReadable(true, false)
             val parentName = file.parentFile?.name
-            if (parentName == "bin" || parentName == "sbin" || file.name == "sh" || file.name == "busybox" || file.name == "n8n" || file.name == "node") {
+            if (parentName == "bin" || parentName == "sbin" ||
+                file.name == "sh" || file.name == "busybox" ||
+                file.name == "n8n" || file.name == "node" || file.name == "npm" ||
+                file.name.endsWith(".so") || file.name.contains("proot")) {
                 file.setExecutable(true, false)
             }
         }

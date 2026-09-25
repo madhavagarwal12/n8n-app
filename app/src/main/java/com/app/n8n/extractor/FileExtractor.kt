@@ -36,6 +36,7 @@ class FileExtractor(private val context: Context) {
         const val ROOTFS_GZ_ASSET = "n8n-rootfs-arm64.tar.gz"
         const val ALPINE_MINI_URL = "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.0-aarch64.tar.gz"
         private const val SENTINEL_FILE = ".n8n_installed"
+        private const val SENTINEL_VERSION = "n8n_v2_prebuilt_rootfs_v3"
     }
 
     val binDir: File get() = File(context.filesDir, "bin")
@@ -50,10 +51,32 @@ class FileExtractor(private val context: Context) {
 
     fun isInstalled(): Boolean {
         val sentinel = File(context.filesDir, SENTINEL_FILE)
+        if (!sentinel.exists()) return false
+        val content = try { sentinel.readText().trim() } catch (e: Exception) { "" }
+        if (content != SENTINEL_VERSION) return false
+
         val busybox = File(rootfsDir, "bin/busybox")
         val shFile = File(rootfsDir, "bin/sh")
         val hasShell = busybox.exists() || shFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(shFile.toPath(), LinkOption.NOFOLLOW_LINKS))
-        return sentinel.exists() && hasShell && prootBinary.exists()
+
+        return hasShell && prootBinary.exists() && hasN8nBinary()
+    }
+
+    fun hasN8nBinary(): Boolean {
+        val candidatePaths = listOf(
+            File(rootfsDir, "usr/local/bin/n8n"),
+            File(rootfsDir, "usr/bin/n8n"),
+            File(rootfsDir, "usr/local/lib/node_modules/n8n/bin/n8n"),
+            File(rootfsDir, "usr/lib/node_modules/n8n/bin/n8n"),
+            File(rootfsDir, "home/node/packages/cli/bin/n8n")
+        )
+        for (candidate in candidatePaths) {
+            if (candidate.exists()) return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(candidate.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                return true
+            }
+        }
+        return false
     }
 
     fun extractPayload(): Flow<ExtractionProgress> = flow {
@@ -61,33 +84,36 @@ class FileExtractor(private val context: Context) {
             emit(ExtractionProgress.Progress(0.02f, "Preparing file system sandbox..."))
 
             binDir.mkdirs()
+            if (rootfsDir.exists() && !isInstalled()) {
+                rootfsDir.deleteRecursively()
+            }
             rootfsDir.mkdirs()
             dataDir.mkdirs()
 
-            // Step 1: Detect bundled rootfs asset
+            // Step 1: Detect bundled rootfs asset (.xz preferred)
             var assetName: String? = null
             try {
-                context.assets.open(ROOTFS_GZ_ASSET).close()
-                assetName = ROOTFS_GZ_ASSET
+                context.assets.open(ROOTFS_XZ_ASSET).close()
+                assetName = ROOTFS_XZ_ASSET
             } catch (e1: Exception) {
                 try {
-                    context.assets.open(ROOTFS_XZ_ASSET).close()
-                    assetName = ROOTFS_XZ_ASSET
+                    context.assets.open(ROOTFS_GZ_ASSET).close()
+                    assetName = ROOTFS_GZ_ASSET
                 } catch (e2: Exception) {
                     assetName = null
                 }
             }
 
             if (assetName != null) {
-                emit(ExtractionProgress.Progress(0.10f, "Extracting bundled rootfs payload ($assetName)..."))
+                emit(ExtractionProgress.Progress(0.08f, "Extracting pre-bundled rootfs ($assetName)..."))
                 context.assets.open(assetName).use { assetStream ->
                     if (assetName.endsWith(".xz")) {
                         extractTarXzStream(assetStream) { p, msg ->
-                            emit(ExtractionProgress.Progress(0.10f + (p * 0.85f), msg))
+                            emit(ExtractionProgress.Progress(0.08f + (p * 0.84f), msg))
                         }
                     } else {
                         extractTarGzStream(assetStream) { p, msg ->
-                            emit(ExtractionProgress.Progress(0.10f + (p * 0.85f), msg))
+                            emit(ExtractionProgress.Progress(0.08f + (p * 0.84f), msg))
                         }
                     }
                 }
@@ -108,7 +134,7 @@ class FileExtractor(private val context: Context) {
                 tempArchive.delete()
             }
 
-            // Configure DNS resolv.conf and Alpine v3.21 repositories (for Node.js 22 LTS)
+            // Configure DNS resolv.conf and hosts in rootfs
             val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
             File(etcDir, "resolv.conf").writeText("nameserver 1.1.1.1\nnameserver 8.8.8.8\n")
             File(etcDir, "hosts").writeText("127.0.0.1 localhost\n::1 localhost\n")
@@ -126,7 +152,6 @@ class FileExtractor(private val context: Context) {
                 busybox.setReadable(true, false)
                 busybox.setWritable(true, false)
                 busybox.setExecutable(true, false)
-                // If sh does not exist as a direct file or broken symlink, duplicate busybox as sh
                 if (!shFile.exists()) {
                     try {
                         busybox.copyTo(shFile, overwrite = true)
@@ -140,10 +165,11 @@ class FileExtractor(private val context: Context) {
             }
 
             // Step 2: Finalize permissions
-            emit(ExtractionProgress.Progress(0.96f, "Configuring POSIX permissions..."))
+            emit(ExtractionProgress.Progress(0.95f, "Configuring POSIX permissions..."))
             ensurePermissions(rootfsDir)
 
-            File(context.filesDir, SENTINEL_FILE).writeText(System.currentTimeMillis().toString())
+            // Step 3: Write sentinel
+            File(context.filesDir, SENTINEL_FILE).writeText(SENTINEL_VERSION)
 
             emit(ExtractionProgress.Progress(1.0f, "Environment ready!"))
             emit(ExtractionProgress.Completed(rootfsDir, binDir, dataDir))
@@ -172,7 +198,7 @@ class FileExtractor(private val context: Context) {
         destination.parentFile?.mkdirs()
         connection.inputStream.use { input ->
             FileOutputStream(destination).use { output ->
-                val buffer = ByteArray(8192)
+                val buffer = ByteArray(65536)
                 var bytesRead: Int
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     output.write(buffer, 0, bytesRead)
@@ -190,7 +216,7 @@ class FileExtractor(private val context: Context) {
         rawInput: InputStream,
         onProgress: suspend (Float, String) -> Unit
     ) {
-        val bufferedInput = BufferedInputStream(rawInput)
+        val bufferedInput = BufferedInputStream(rawInput, 65536)
         val gzIn = GzipCompressorInputStream(bufferedInput)
         val tarIn = TarArchiveInputStream(gzIn)
         extractTarEntries(tarIn, onProgress)
@@ -200,7 +226,7 @@ class FileExtractor(private val context: Context) {
         rawInput: InputStream,
         onProgress: suspend (Float, String) -> Unit
     ) {
-        val bufferedInput = BufferedInputStream(rawInput)
+        val bufferedInput = BufferedInputStream(rawInput, 65536)
         val xzIn = XZInputStream(bufferedInput)
         val tarIn = TarArchiveInputStream(xzIn)
         extractTarEntries(tarIn, onProgress)
@@ -212,6 +238,7 @@ class FileExtractor(private val context: Context) {
     ) {
         var entry: TarArchiveEntry? = tarIn.nextTarEntry
         var count = 0
+        val estimatedTotalEntries = 18000f
 
         while (entry != null) {
             count++
@@ -226,22 +253,30 @@ class FileExtractor(private val context: Context) {
                     destFile.setExecutable(true, false)
                 } else if (entry.isSymbolicLink) {
                     createSymlink(destFile, entry.linkName)
+                } else if (entry.isLink) {
+                    createHardlinkOrCopy(destFile, entry.linkName)
                 } else {
                     destFile.parentFile?.mkdirs()
                     destFile.parentFile?.setWritable(true, false)
                     FileOutputStream(destFile).use { output ->
-                        tarIn.copyTo(output)
+                        val buffer = ByteArray(65536)
+                        var bytesRead: Int
+                        while (tarIn.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                        }
                     }
                     destFile.setReadable(true, false)
                     destFile.setWritable(true, false)
-                    if (entry.mode and 0b001001001 != 0) {
+                    if ((entry.mode and 0b001001001 != 0) || destFile.name.endsWith(".so") || destFile.name.endsWith(".node")) {
                         destFile.setExecutable(true, false)
                     }
                 }
             }
 
-            if (count % 40 == 0) {
-                onProgress(0.5f, "Extracting: ${entry.name.takeLast(25)}")
+            if (count % 80 == 0) {
+                val progressRatio = (count / estimatedTotalEntries).coerceIn(0f, 0.98f)
+                val shortName = entry.name.substringAfterLast('/')
+                onProgress(progressRatio, "Extracting: $shortName")
             }
 
             entry = tarIn.nextTarEntry
@@ -279,6 +314,32 @@ class FileExtractor(private val context: Context) {
         }
     }
 
+    private fun createHardlinkOrCopy(destFile: File, targetPath: String) {
+        destFile.parentFile?.mkdirs()
+        val targetFile = File(rootfsDir, targetPath.removePrefix("./").removePrefix("/"))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && targetFile.exists()) {
+            try {
+                Files.deleteIfExists(destFile.toPath())
+                Files.createLink(destFile.toPath(), targetFile.toPath())
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Hardlink creation failed, attempting file copy: ${e.message}")
+            }
+        }
+        if (targetFile.exists() && targetFile.isFile) {
+            try {
+                targetFile.copyTo(destFile, overwrite = true)
+                destFile.setReadable(true, false)
+                destFile.setWritable(true, false)
+                destFile.setExecutable(true, false)
+                return
+            } catch (e: Exception) {
+                Log.e(TAG, "Copy hardlink target failed", e)
+            }
+        }
+        createSymlink(destFile, targetPath)
+    }
+
     fun ensurePermissions(file: File) {
         file.setReadable(true, false)
         file.setWritable(true, false)
@@ -291,7 +352,7 @@ class FileExtractor(private val context: Context) {
             if (parentName == "bin" || parentName == "sbin" ||
                 file.name == "sh" || file.name == "busybox" ||
                 file.name == "n8n" || file.name == "node" || file.name == "npm" ||
-                file.name.endsWith(".so") || file.name.contains("proot") ||
+                file.name.endsWith(".so") || file.name.endsWith(".node") || file.name.contains("proot") ||
                 absPath.contains("/bin/") || absPath.contains("/node_modules/.bin/")) {
                 file.setExecutable(true, false)
             }

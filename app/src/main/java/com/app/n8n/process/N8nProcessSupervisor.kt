@@ -232,11 +232,13 @@ class N8nProcessSupervisor(private val context: Context) {
             "/usr/bin/env", "-i",
             "HOME=/root",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "NODE_ENV=production",
             "NODE_OPTIONS=--max-old-space-size=1024",
             "N8N_HOST=0.0.0.0",
             "N8N_PORT=$port",
             "N8N_SECURE_COOKIE=false",
             "N8N_DIAGNOSTICS_ENABLED=false",
+            "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false",
             "WEBHOOK_URL=$webhookUrl"
         ) + shellPrefix + listOf(launchScript)
 

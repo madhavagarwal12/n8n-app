@@ -1,6 +1,7 @@
 package com.app.n8n.process
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.app.n8n.extractor.FileExtractor
 import com.app.n8n.model.LogEntry
@@ -21,6 +22,8 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.util.concurrent.TimeUnit
 
 enum class StartupMode {

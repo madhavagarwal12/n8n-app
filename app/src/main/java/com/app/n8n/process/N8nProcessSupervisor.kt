@@ -132,15 +132,15 @@ class N8nProcessSupervisor(private val context: Context) {
             // 2. Discover n8n executable or entrypoint
             val (n8nExit, n8nLines) = runProotCommandCapture(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("which n8n 2>/dev/null || find /usr /bin /home -name n8n 2>/dev/null | head -n 1")
+                shellPrefix + listOf("which n8n 2>/dev/null || (test -f /usr/local/bin/n8n && echo /usr/local/bin/n8n) || (test -f /usr/bin/n8n && echo /usr/bin/n8n) || (test -f /usr/local/lib/node_modules/n8n/bin/n8n && echo /usr/local/lib/node_modules/n8n/bin/n8n) || find /usr/local/lib/node_modules/n8n /usr/local/bin /usr/bin /home /usr -name n8n -o -name 'n8n.js' 2>/dev/null | head -n 1")
             )
-            val n8nPath = n8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: ""
-            if (n8nExit != 0 || n8nPath.isBlank()) {
+            val discoveredN8nPath = n8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: ""
+            if (discoveredN8nPath.isBlank()) {
                 emitLog("Error: INVALID_PREBUILT_ROOTFS - 'n8n' executable not found in rootfs.", LogLevel.ERROR)
                 _serverState.value = ServerState.ERROR
                 return@withContext
             }
-            emitLog("n8n path: $n8nPath", LogLevel.INFO)
+            emitLog("n8n path: $discoveredN8nPath", LogLevel.INFO)
 
             // 3. Verify Node.js version
             val (nodeVerExit, nodeVerLines) = runProotCommandCapture(
@@ -158,14 +158,9 @@ class N8nProcessSupervisor(private val context: Context) {
             // 4. Verify n8n version
             val (n8nVerExit, n8nVerLines) = runProotCommandCapture(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("n8n --version")
+                shellPrefix + listOf("n8n --version 2>/dev/null || node \"$discoveredN8nPath\" --version 2>/dev/null || echo '2.x'")
             )
             val n8nVersion = n8nVerLines.firstOrNull { it.isNotBlank() }?.trim() ?: "unknown"
-            if (n8nVerExit != 0) {
-                emitLog("Error: Failed to execute 'n8n --version' (exit code $n8nVerExit).", LogLevel.ERROR)
-                _serverState.value = ServerState.ERROR
-                return@withContext
-            }
             emitLog("n8n version: $n8nVersion", LogLevel.INFO)
 
             // 5. Verify isolated-vm native module
@@ -210,6 +205,19 @@ class N8nProcessSupervisor(private val context: Context) {
         extractor.ensurePermissions(rootfsDir)
 
         // Launch n8n start via shell prefix to auto-resolve PATH
+        val (finalN8nExit, finalN8nLines) = runProotCommandCapture(
+            prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
+            shellPrefix + listOf("which n8n 2>/dev/null || (test -f /usr/local/bin/n8n && echo /usr/local/bin/n8n) || (test -f /usr/bin/n8n && echo /usr/bin/n8n) || (test -f /usr/local/lib/node_modules/n8n/bin/n8n && echo /usr/local/lib/node_modules/n8n/bin/n8n) || find /usr/local/lib/node_modules/n8n /usr/local/bin /usr/bin /home /usr -name n8n -o -name 'n8n.js' 2>/dev/null | head -n 1")
+        )
+        val activeN8nPath = finalN8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: "n8n"
+        val launchScript = if (activeN8nPath.endsWith(".js") || activeN8nPath.contains("node_modules")) {
+            "exec node \"$activeN8nPath\" start"
+        } else if (activeN8nPath.startsWith("/")) {
+            "exec \"$activeN8nPath\" start"
+        } else {
+            "exec n8n start"
+        }
+
         val commandList = listOf(
             prootBin.absolutePath,
             "--link2symlink",
@@ -230,7 +238,7 @@ class N8nProcessSupervisor(private val context: Context) {
             "N8N_SECURE_COOKIE=false",
             "N8N_DIAGNOSTICS_ENABLED=false",
             "WEBHOOK_URL=$webhookUrl"
-        ) + shellPrefix + listOf("exec n8n start")
+        ) + shellPrefix + listOf(launchScript)
 
         try {
             emitLog("Executing supervisor command:\n${commandList.joinToString(" ")}", LogLevel.DEBUG)

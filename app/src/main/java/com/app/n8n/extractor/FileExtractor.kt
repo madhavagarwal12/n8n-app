@@ -287,10 +287,12 @@ class FileExtractor(private val context: Context) {
             file.listFiles()?.forEach { ensurePermissions(it) }
         } else {
             val parentName = file.parentFile?.name
+            val absPath = file.absolutePath
             if (parentName == "bin" || parentName == "sbin" ||
                 file.name == "sh" || file.name == "busybox" ||
                 file.name == "n8n" || file.name == "node" || file.name == "npm" ||
-                file.name.endsWith(".so") || file.name.contains("proot")) {
+                file.name.endsWith(".so") || file.name.contains("proot") ||
+                absPath.contains("/bin/") || absPath.contains("/node_modules/.bin/")) {
                 file.setExecutable(true, false)
             }
         }

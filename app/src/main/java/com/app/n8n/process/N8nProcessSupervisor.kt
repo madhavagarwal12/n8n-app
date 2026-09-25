@@ -204,12 +204,10 @@ class N8nProcessSupervisor(private val context: Context) {
             shellPrefix + listOf("which n8n 2>/dev/null || (test -f /usr/local/bin/n8n && echo /usr/local/bin/n8n) || (test -f /usr/bin/n8n && echo /usr/bin/n8n) || (test -f /usr/local/lib/node_modules/n8n/bin/n8n && echo /usr/local/lib/node_modules/n8n/bin/n8n) || find /usr/local/lib/node_modules/n8n /usr/local/bin /usr/bin /home /usr -name n8n -o -name 'n8n.js' 2>/dev/null | head -n 1")
         )
         val activeN8nPath = finalN8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: "n8n"
-        val launchScript = if (activeN8nPath.endsWith(".js") || activeN8nPath.contains("node_modules")) {
+        val launchScript = if (activeN8nPath.isNotBlank()) {
             "exec node \"$activeN8nPath\" start"
-        } else if (activeN8nPath.startsWith("/")) {
-            "exec \"$activeN8nPath\" start"
         } else {
-            "exec n8n start"
+            "exec node /usr/local/bin/n8n start"
         }
 
         val commandList = listOf(

@@ -75,23 +75,14 @@ class N8nProcessSupervisor(private val context: Context) {
         // Pre-flight check 2: Rootfs /bin/sh or /bin/busybox
         val shFile = File(rootfsDir, "bin/sh")
         val busyboxFile = File(rootfsDir, "bin/busybox")
+        val hasSh = shFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(shFile.toPath(), LinkOption.NOFOLLOW_LINKS))
+        val hasBusybox = busyboxFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(busyboxFile.toPath(), LinkOption.NOFOLLOW_LINKS))
 
-        if (!shFile.exists() && busyboxFile.exists()) {
-            try {
-                busyboxFile.copyTo(shFile, overwrite = true)
-                shFile.setExecutable(true, false)
-            } catch (e: Exception) {
-                Log.w(TAG, "Error copying busybox to sh", e)
-            }
-        }
-
-        if (!shFile.exists() && !busyboxFile.exists()) {
-            emitLog("Error: Rootfs shell not found at ${shFile.absolutePath}. Please re-run setup.", LogLevel.ERROR)
+        if (!hasSh && !hasBusybox) {
+            emitLog("Error: Rootfs shell not found. Please re-run setup.", LogLevel.ERROR)
             _serverState.value = ServerState.ERROR
             return@withContext
         }
-        shFile.setExecutable(true, false)
-        busyboxFile.setExecutable(true, false)
 
         // Ensure DNS, networking, and Alpine v3.21 repositories (for Node.js 22 LTS) in rootfs
         val etcDir = File(rootfsDir, "etc").apply { mkdirs() }
@@ -119,7 +110,7 @@ class N8nProcessSupervisor(private val context: Context) {
             // 1. Discover node executable
             val (nodeExit, nodeLines) = runProotCommandCapture(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("which node 2>/dev/null || find /usr /bin /home -name node -type f 2>/dev/null | head -n 1")
+                shellPrefix + listOf("which node 2>/dev/null || (test -f /usr/local/bin/node && echo /usr/local/bin/node) || (test -f /usr/bin/node && echo /usr/bin/node) || find /usr /bin /home -name node -type f 2>/dev/null | head -n 1")
             )
             val nodePath = nodeLines.firstOrNull { it.isNotBlank() }?.trim() ?: ""
             if (nodeExit != 0 || nodePath.isBlank()) {
@@ -233,7 +224,8 @@ class N8nProcessSupervisor(private val context: Context) {
             "HOME=/root",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "NODE_ENV=production",
-            "NODE_OPTIONS=--max-old-space-size=1024",
+            "NODE_PATH=/usr/local/lib/node_modules/n8n/node_modules:/usr/local/lib/node_modules:/usr/lib/node_modules",
+            "NODE_OPTIONS=--max-old-space-size=512",
             "N8N_HOST=0.0.0.0",
             "N8N_PORT=$port",
             "N8N_SECURE_COOKIE=false",
@@ -294,13 +286,7 @@ class N8nProcessSupervisor(private val context: Context) {
     }
 
     private fun getShellPrefix(rootfsDir: File): List<String> {
-        val shFile = File(rootfsDir, "bin/sh")
-        val busyboxFile = File(rootfsDir, "bin/busybox")
-        return when {
-            shFile.exists() -> listOf("/bin/sh", "-c")
-            busyboxFile.exists() -> listOf("/bin/busybox", "sh", "-c")
-            else -> listOf("/bin/sh", "-c")
-        }
+        return listOf("/bin/sh", "-c")
     }
 
     private suspend fun runProotCommand(
@@ -326,7 +312,9 @@ class N8nProcessSupervisor(private val context: Context) {
             "/usr/bin/env", "-i",
             "HOME=/root",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "NODE_OPTIONS=--max-old-space-size=1024"
+            "NODE_ENV=production",
+            "NODE_PATH=/usr/local/lib/node_modules/n8n/node_modules:/usr/local/lib/node_modules:/usr/lib/node_modules",
+            "NODE_OPTIONS=--max-old-space-size=512"
         )
         fullCommand.addAll(innerCommand)
 
@@ -384,7 +372,9 @@ class N8nProcessSupervisor(private val context: Context) {
             "/usr/bin/env", "-i",
             "HOME=/root",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "NODE_OPTIONS=--max-old-space-size=1024"
+            "NODE_ENV=production",
+            "NODE_PATH=/usr/local/lib/node_modules/n8n/node_modules:/usr/local/lib/node_modules:/usr/lib/node_modules",
+            "NODE_OPTIONS=--max-old-space-size=512"
         )
         fullCommand.addAll(innerCommand)
 

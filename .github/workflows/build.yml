@@ -35,17 +35,11 @@ jobs:
       - name: Pre-build Complete n8n ARM64 Rootfs
         run: |
           mkdir -p app/src/main/assets
-          echo "Building complete pre-installed n8n ARM64 rootfs in Docker container..."
-          docker run --platform linux/arm64 --name n8n_builder alpine:3.21 /bin/sh -c "
-            apk update && \
-            apk add --no-cache nodejs npm sqlite ca-certificates bash python3 make g++ && \
-            npm install -g n8n@2.40.6 --prefer-online --omit=dev --no-audit --no-fund && \
-            mkdir -p /root/.n8n /tmp && \
-            rm -rf /root/.npm /var/cache/apk/* /tmp/*
-          "
-          echo "Exporting and compressing pre-built rootfs to app/src/main/assets/n8n-rootfs-arm64.tar.xz..."
-          docker export n8n_builder | xz -6e -T0 > app/src/main/assets/n8n-rootfs-arm64.tar.xz
-          docker rm n8n_builder
+          echo "Pulling official n8n ARM64 Alpine image with pre-compiled isolated-vm and native modules..."
+          docker create --platform linux/arm64 --name n8n_container docker.io/n8nio/n8n:latest
+          echo "Exporting pre-built rootfs to app/src/main/assets/n8n-rootfs-arm64.tar.xz..."
+          docker export n8n_container | xz -6e -T0 > app/src/main/assets/n8n-rootfs-arm64.tar.xz
+          docker rm n8n_container
           echo "Generated asset size:"
           ls -lh app/src/main/assets/
 

@@ -109,27 +109,26 @@ class N8nProcessSupervisor(private val context: Context) {
 
         // Check if n8n and node are already installed and verified
         var isInstalledAndVerified = false
-        val hasN8n = File(rootfsDir, "usr/local/bin/n8n").exists() || File(rootfsDir, "usr/bin/n8n").exists()
-        val hasNode = File(rootfsDir, "usr/bin/node").exists() || File(rootfsDir, "usr/local/bin/node").exists()
+        val hasN8n = File(rootfsDir, "usr/local/bin/n8n").exists() || 
+                     File(rootfsDir, "usr/bin/n8n").exists() ||
+                     File(rootfsDir, "usr/local/lib/node_modules/n8n/bin/n8n").exists()
+        val hasNode = File(rootfsDir, "usr/bin/node").exists() || 
+                      File(rootfsDir, "usr/local/bin/node").exists()
 
         if (hasN8n && hasNode) {
             val quickNode = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("node --version"),
-                "Verifying existing Node.js"
-            )
-            val quickNpm = runProotCommand(
-                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("npm --version"),
-                "Verifying existing npm"
+                "Verifying Node.js engine"
             )
             val quickN8n = runProotCommand(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
                 shellPrefix + listOf("n8n --version"),
-                "Verifying existing n8n"
+                "Verifying n8n engine"
             )
-            if (quickNode && quickNpm && quickN8n) {
+            if (quickNode && quickN8n) {
                 isInstalledAndVerified = true
+                emitLog("Pre-bundled n8n environment verified successfully!", LogLevel.INFO)
             }
         }
 

@@ -144,26 +144,6 @@ class FileExtractor(private val context: Context) {
                 "https://dl-cdn.alpinelinux.org/alpine/v3.21/community\n"
             )
 
-            // Ensure busybox and sh are executable and valid
-            val busybox = File(rootfsDir, "bin/busybox")
-            val shFile = File(rootfsDir, "bin/sh")
-
-            if (busybox.exists()) {
-                busybox.setReadable(true, false)
-                busybox.setWritable(true, false)
-                busybox.setExecutable(true, false)
-                if (!shFile.exists()) {
-                    try {
-                        busybox.copyTo(shFile, overwrite = true)
-                        shFile.setReadable(true, false)
-                        shFile.setWritable(true, false)
-                        shFile.setExecutable(true, false)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not copy busybox to sh", e)
-                    }
-                }
-            }
-
             // Step 2: Finalize permissions
             emit(ExtractionProgress.Progress(0.95f, "Configuring POSIX permissions..."))
             ensurePermissions(rootfsDir)
@@ -340,21 +320,33 @@ class FileExtractor(private val context: Context) {
         createSymlink(destFile, targetPath)
     }
 
-    fun ensurePermissions(file: File) {
-        file.setReadable(true, false)
-        file.setWritable(true, false)
-        if (file.isDirectory) {
-            file.setExecutable(true, false)
-            file.listFiles()?.forEach { ensurePermissions(it) }
-        } else {
-            val parentName = file.parentFile?.name
-            val absPath = file.absolutePath
-            if (parentName == "bin" || parentName == "sbin" ||
-                file.name == "sh" || file.name == "busybox" ||
-                file.name == "n8n" || file.name == "node" || file.name == "npm" ||
-                file.name.endsWith(".so") || file.name.endsWith(".node") || file.name.contains("proot") ||
-                absPath.contains("/bin/") || absPath.contains("/node_modules/.bin/")) {
-                file.setExecutable(true, false)
+    fun ensurePermissions(rootfs: File) {
+        rootfs.setReadable(true, false)
+        rootfs.setWritable(true, false)
+        rootfs.setExecutable(true, false)
+
+        val binDirs = listOf(
+            File(rootfs, "bin"),
+            File(rootfs, "sbin"),
+            File(rootfs, "usr/bin"),
+            File(rootfs, "usr/sbin"),
+            File(rootfs, "usr/local/bin"),
+            File(rootfs, "usr/local/sbin"),
+            binDir
+        )
+        for (dir in binDirs) {
+            if (dir.exists()) {
+                dir.setReadable(true, false)
+                dir.setWritable(true, false)
+                dir.setExecutable(true, false)
+                dir.listFiles()?.forEach { file ->
+                    val isLink = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.isSymbolicLink(file.toPath())
+                    if (!isLink) {
+                        file.setReadable(true, false)
+                        file.setWritable(true, false)
+                        file.setExecutable(true, false)
+                    }
+                }
             }
         }
     }

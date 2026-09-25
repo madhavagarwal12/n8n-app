@@ -36,7 +36,7 @@ jobs:
         run: |
           mkdir -p app/src/main/assets
           echo "Verifying official n8n ARM64 container filesystem..."
-          docker run --rm --platform linux/arm64 docker.io/n8nio/n8n:latest /bin/sh -c "
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh docker.io/n8nio/n8n:latest -c "
             which node && echo 'NODE_OK' && \
             (which n8n || find /usr /home /bin -name n8n 2>/dev/null) && echo 'N8N_FOUND' && \
             n8n --version && echo 'N8N_VERSION_OK' && \

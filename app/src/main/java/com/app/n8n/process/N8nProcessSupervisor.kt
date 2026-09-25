@@ -110,30 +110,26 @@ class N8nProcessSupervisor(private val context: Context) {
         emitLog("Rootfs mode: ${mode.name}", LogLevel.INFO)
 
         if (mode == StartupMode.PREBUILT_N8N) {
-            // 1. Discover node executable
-            val (nodeExit, nodeLines) = runProotCommandCapture(
-                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("which node 2>/dev/null || (test -f /usr/local/bin/node && echo /usr/local/bin/node) || (test -f /usr/bin/node && echo /usr/bin/node) || find /usr /bin /home -name node -type f 2>/dev/null | head -n 1")
-            )
-            val nodePath = nodeLines.firstOrNull { it.isNotBlank() }?.trim() ?: ""
-            if (nodeExit != 0 || nodePath.isBlank()) {
-                emitLog("Error: INVALID_PREBUILT_ROOTFS - 'node' executable not found in rootfs.", LogLevel.ERROR)
-                _serverState.value = ServerState.ERROR
-                return@withContext
-            }
+            // 1. Resolve node executable
+            val nodeCandidates = listOf("/usr/bin/node", "/usr/local/bin/node", "/bin/node")
+            val nodePath = nodeCandidates.firstOrNull { guestPath ->
+                val hostFile = File(rootfsDir, guestPath.removePrefix("/"))
+                hostFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(hostFile.toPath(), LinkOption.NOFOLLOW_LINKS))
+            } ?: "/usr/bin/node"
             emitLog("Node path: $nodePath", LogLevel.INFO)
 
-            // 2. Discover n8n executable or entrypoint
-            val (n8nExit, n8nLines) = runProotCommandCapture(
-                prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("which n8n 2>/dev/null || (test -f /usr/local/bin/n8n && echo /usr/local/bin/n8n) || (test -f /usr/bin/n8n && echo /usr/bin/n8n) || (test -f /usr/local/lib/node_modules/n8n/bin/n8n && echo /usr/local/lib/node_modules/n8n/bin/n8n) || find /usr/local/lib/node_modules/n8n /usr/local/bin /usr/bin /home /usr -name n8n -o -name 'n8n.js' 2>/dev/null | head -n 1")
+            // 2. Resolve n8n entrypoint
+            val n8nCandidates = listOf(
+                "/usr/local/lib/node_modules/n8n/bin/n8n",
+                "/usr/local/bin/n8n",
+                "/usr/bin/n8n",
+                "/usr/lib/node_modules/n8n/bin/n8n",
+                "/home/node/packages/cli/bin/n8n"
             )
-            val discoveredN8nPath = n8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: ""
-            if (discoveredN8nPath.isBlank()) {
-                emitLog("Error: INVALID_PREBUILT_ROOTFS - 'n8n' executable not found in rootfs.", LogLevel.ERROR)
-                _serverState.value = ServerState.ERROR
-                return@withContext
-            }
+            val discoveredN8nPath = n8nCandidates.firstOrNull { guestPath ->
+                val hostFile = File(rootfsDir, guestPath.removePrefix("/"))
+                hostFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(hostFile.toPath(), LinkOption.NOFOLLOW_LINKS))
+            } ?: "/usr/local/lib/node_modules/n8n/bin/n8n"
             emitLog("n8n path: $discoveredN8nPath", LogLevel.INFO)
 
             // 3. Verify Node.js version
@@ -142,17 +138,12 @@ class N8nProcessSupervisor(private val context: Context) {
                 shellPrefix + listOf("node --version")
             )
             val nodeVersion = nodeVerLines.firstOrNull { it.isNotBlank() }?.trim() ?: "unknown"
-            if (nodeVerExit != 0) {
-                emitLog("Error: Failed to execute 'node --version' (exit code $nodeVerExit).", LogLevel.ERROR)
-                _serverState.value = ServerState.ERROR
-                return@withContext
-            }
             emitLog("Node version: $nodeVersion", LogLevel.INFO)
 
             // 4. Verify n8n version
             val (n8nVerExit, n8nVerLines) = runProotCommandCapture(
                 prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-                shellPrefix + listOf("n8n --version 2>/dev/null || node \"$discoveredN8nPath\" --version 2>/dev/null || echo '2.x'")
+                shellPrefix + listOf("node \"$discoveredN8nPath\" --version 2>/dev/null || echo '2.x'")
             )
             val n8nVersion = n8nVerLines.firstOrNull { it.isNotBlank() }?.trim() ?: "unknown"
             emitLog("n8n version: $n8nVersion", LogLevel.INFO)
@@ -198,17 +189,18 @@ class N8nProcessSupervisor(private val context: Context) {
         // Ensure permissions once more before launch
         extractor.ensurePermissions(rootfsDir)
 
-        // Launch n8n start via shell prefix to auto-resolve PATH
-        val (finalN8nExit, finalN8nLines) = runProotCommandCapture(
-            prootBin, rootfsDir, dataDir, tmpDir, nativeLibDir,
-            shellPrefix + listOf("which n8n 2>/dev/null || (test -f /usr/local/bin/n8n && echo /usr/local/bin/n8n) || (test -f /usr/bin/n8n && echo /usr/bin/n8n) || (test -f /usr/local/lib/node_modules/n8n/bin/n8n && echo /usr/local/lib/node_modules/n8n/bin/n8n) || find /usr/local/lib/node_modules/n8n /usr/local/bin /usr/bin /home /usr -name n8n -o -name 'n8n.js' 2>/dev/null | head -n 1")
+        val n8nCandidates = listOf(
+            "/usr/local/lib/node_modules/n8n/bin/n8n",
+            "/usr/local/bin/n8n",
+            "/usr/bin/n8n",
+            "/usr/lib/node_modules/n8n/bin/n8n",
+            "/home/node/packages/cli/bin/n8n"
         )
-        val activeN8nPath = finalN8nLines.firstOrNull { it.isNotBlank() }?.trim() ?: "n8n"
-        val launchScript = if (activeN8nPath.isNotBlank()) {
-            "exec node \"$activeN8nPath\" start"
-        } else {
-            "exec node /usr/local/bin/n8n start"
-        }
+        val activeN8nPath = n8nCandidates.firstOrNull { guestPath ->
+            val hostFile = File(rootfsDir, guestPath.removePrefix("/"))
+            hostFile.exists() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && Files.exists(hostFile.toPath(), LinkOption.NOFOLLOW_LINKS))
+        } ?: "/usr/local/lib/node_modules/n8n/bin/n8n"
+        val launchScript = "exec node \"$activeN8nPath\" start"
 
         val commandList = listOf(
             prootBin.absolutePath,

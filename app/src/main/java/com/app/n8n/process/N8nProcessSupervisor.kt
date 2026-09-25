@@ -396,6 +396,7 @@ class N8nProcessSupervisor(private val context: Context) {
 
     private fun setupEnvironment(processBuilder: ProcessBuilder, nativeLibDir: String, tmpDir: File) {
         val env = processBuilder.environment()
+        env["PROOT_NO_SECCOMP"] = "1"
         env["LD_LIBRARY_PATH"] = nativeLibDir
         val loader = File(nativeLibDir, "libproot-loader.so")
         if (loader.exists()) {
